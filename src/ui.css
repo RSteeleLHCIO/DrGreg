@@ -52,6 +52,12 @@ body {
     border-color: transparent;
 }
 
+.btn-add {
+    background: var(--success);
+    border-color: rgba(22, 163, 74, 0.9);
+    color: #fff;
+}
+
 /* small helpers */
 .dialog-overlay {
     display: flex;

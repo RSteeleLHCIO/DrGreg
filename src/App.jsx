@@ -295,7 +295,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "weight" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "weight" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -320,7 +320,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "tired" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "tired" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -345,7 +345,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "headache" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "headache" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -370,7 +370,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "back" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "back" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -395,7 +395,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "heart" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "heart" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -420,7 +420,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "glucose" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "glucose" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
@@ -445,7 +445,7 @@ export default function App() {
                                 </>
                             ) : (
                                 <>
-                                    <Button onClick={() => setOpen({ type: "bp" })}>+ Add</Button>
+                                    <Button className="btn-add" onClick={() => setOpen({ type: "bp" })}>+ Add</Button>
                                     <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
                                 </>
                             )}
