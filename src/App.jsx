@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone, Edit } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -291,8 +291,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#16a34a" }}>{weight} lbs</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.weightUpdatedAt ? new Date(dayValues.weightUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "weight" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "weight" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "weight" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open weight chart" onClick={() => setOpen({ type: "chart", metric: "weight" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
@@ -318,8 +318,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#4f46e5" }}>{tired} / 10</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.tiredUpdatedAt ? new Date(dayValues.tiredUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "tired" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "tired" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "tired" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open tired chart" onClick={() => setOpen({ type: "chart", metric: "tired" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
@@ -345,8 +345,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#7c3aed" }}>{headache} / 10</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.headacheUpdatedAt ? new Date(dayValues.headacheUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "headache" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "headache" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "headache" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open headache chart" onClick={() => setOpen({ type: "chart", metric: "headache" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
@@ -372,8 +372,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#f59e0b" }}>{backAche} / 10</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.backAcheUpdatedAt ? new Date(dayValues.backAcheUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "back" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "back" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "back" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open back ache chart" onClick={() => setOpen({ type: "chart", metric: "back" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
@@ -398,10 +398,10 @@ export default function App() {
                                 <>
                                     <p className="card-data" style={{ color: "#dc2626" }}>{heartRate} bpm</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.heartUpdatedAt ? new Date(dayValues.heartUpdatedAt) : null) ?? "—"}</p>
-                                    <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "heart" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "heart" })}><LineChartIcon /> Chart</Button>
-                                    </div>
+                                            <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
+                                                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "heart" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                                <Button variant="ghost" className="btn-icon" aria-label="Open heart rate chart" onClick={() => setOpen({ type: "chart", metric: "heart" })}><LineChartIcon /></Button>
+                                            </div>
                                 </>
                             ) : (
                                 <>
@@ -426,8 +426,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#2563eb" }}>{glucose} mg/dL</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.glucoseUpdatedAt ? new Date(dayValues.glucoseUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "glucose" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "glucose" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "glucose" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open glucose chart" onClick={() => setOpen({ type: "chart", metric: "glucose" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
@@ -453,8 +453,8 @@ export default function App() {
                                     <p className="card-data" style={{ color: "#16a34a" }}>{bpSystolic}/{bpDiastolic}</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.bpUpdatedAt ? new Date(dayValues.bpUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                        <Button variant="secondary" onClick={() => setOpen({ type: "bp" })}>Edit</Button>
-                                        <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "bp" })}><LineChartIcon /> Chart</Button>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "bp" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open blood pressure chart" onClick={() => setOpen({ type: "chart", metric: "bp" })}><LineChartIcon /></Button>
                                     </div>
                                 </>
                             ) : (
