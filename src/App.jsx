@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone, Edit } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone, Edit, Pill } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -13,6 +13,7 @@ import { Input } from "./components/ui/input";
 import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
+import { Switch } from "./components/ui/switch";
 import {
     LineChart,
     Line,
@@ -62,6 +63,8 @@ export default function App() {
                 headacheUpdatedAt: new Date().toISOString(),
                 backAche: 2,
                 backAcheUpdatedAt: new Date().toISOString(),
+                losartan: false,
+                losartanUpdatedAt: new Date().toISOString(),
             },
             // Example: a past day with different values (for demo)
             "2025-08-15": {
@@ -116,6 +119,7 @@ export default function App() {
     const [tired, setTired] = useState(dayValues.tired);
     const [headache, setHeadache] = useState(dayValues.headache);
     const [backAche, setBackAche] = useState(dayValues.backAche);
+    const [losartan, setLosartan] = useState(dayValues.losartan);
 
     // Sync local card values whenever the selected date changes
     useEffect(() => {
@@ -144,6 +148,7 @@ export default function App() {
         setTired(v.tired);
         setHeadache(v.headache);
         setBackAche(v.backAche);
+        setLosartan(v.losartan);
     }, [records, selectedKey]);
 
     // --- Dialog state ----------------------------------------------------------
@@ -430,6 +435,23 @@ export default function App() {
                     </CardContent>
                 </Card>
 
+                {/* Medication: Losartan */}
+                <Card>
+                    <CardContent>
+                        <div style={{ textAlign: "center" }}>
+                            <div className="icon-row">
+                                <Pill style={{ width: 24, height: 24, color: losartan ? "#16a34a" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Medication: Losartan 50mg</h2>
+                            <p className="card-data" style={{ color: losartan ? "#16a34a" : "#6b7280" }}>{losartan ? "Taken" : "Not taken"}</p>
+                            <p className="card-updated">Updated {fmtTime(dayValues.losartanUpdatedAt ? new Date(dayValues.losartanUpdatedAt) : null) ?? "—"}</p>
+                            <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
+                                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "losartan" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 {/* Glucose */}
                 <Card>
                     <CardContent>
@@ -688,6 +710,25 @@ export default function App() {
                         <DialogFooter>
                             <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
                             <Button onClick={() => { upsertSelectedDay({ backAche, backAcheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                )}
+                {/* Losartan Dialog */}
+                {open?.type === "losartan" && (
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Losartan 50mg</DialogTitle>
+                        </DialogHeader>
+                        <div style={{ paddingTop: 8 }}>
+                            <Label htmlFor="losartan">Did you take Losartan today?</Label>
+                            <div style={{ marginTop: 8 }}>
+                                <Switch checked={losartan ?? false} onCheckedChange={setLosartan} />
+                                <span style={{ marginLeft: 12 }}>{losartan ? "Yes" : "No"}</span>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+                            <Button onClick={() => { upsertSelectedDay({ losartan, losartanUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
                         </DialogFooter>
                     </DialogContent>
                 )}

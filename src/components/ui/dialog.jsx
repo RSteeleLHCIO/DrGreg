@@ -1,11 +1,12 @@
 import React from "react";
+import "../../ui.css";
 
 // Very small dialog shim. When `open` is falsy, render nothing.
 export function Dialog({ open, onOpenChange, children }) {
     if (!open) return null;
     // Clicking the overlay will close the dialog if `onOpenChange` provided.
     return (
-        <div className="dialog-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 50 }} onClick={() => onOpenChange && onOpenChange(null)}>
+        <div className="dialog-overlay" onClick={() => onOpenChange && onOpenChange(null)}>
             {children}
         </div>
     );
@@ -14,8 +15,7 @@ export function Dialog({ open, onOpenChange, children }) {
 export function DialogContent({ children, className = "" }) {
     return (
         <div
-            className={`card ${className}`.trim()}
-            style={{ maxWidth: 720, margin: "40px auto", padding: 16, position: "relative" }}
+            className={`dialog-content ${className}`.trim()}
             onClick={(e) => e.stopPropagation()}
         >
             {children}
