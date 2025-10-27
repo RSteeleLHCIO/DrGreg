@@ -273,12 +273,18 @@ export default function App() {
                                 ? "Headache (0–10, last 14 days)"
                                 : "Back Ache (0–10, last 14 days)";
 
+    const getGreeting = () => {
+        const hour = new Date().getHours();
+        return hour < 12 ? "Good Morning" : hour < 17 ? "Good Afternoon" : "Good Evening";
+    };
+
     return (
         <div style={{ padding: 24 }}>
             {/* Header / Date Picker */}
+            {/* Get greeting based on time of day */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <div>
-                    <h1 style={{ fontSize: 20, fontWeight: 700 }}>Overview</h1>
+                    <h1 style={{ fontSize: 30, fontWeight: 700, margin: "0 0 2px 0" }}>{getGreeting()}, Ray</h1>
                     <div className="header-date">{niceDate}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -574,7 +580,7 @@ export default function App() {
                         <DialogHeader>
                             <DialogTitle>Edit Weight</DialogTitle>
                         </DialogHeader>
-                        <div style={{ paddingTop: 8 }}>
+                        <div>
                             <Label htmlFor="weight">Weight (lbs)</Label>
                             <Input id="weight" type="number" value={weight ?? ""} onChange={(e) => setWeight(e.target.value ? Number(e.target.value) : null)} />
                         </div>
@@ -591,7 +597,7 @@ export default function App() {
                         <DialogHeader>
                             <DialogTitle>Edit Glucose</DialogTitle>
                         </DialogHeader>
-                        <div style={{ paddingTop: 8 }}>
+                        <div>
                             <Label htmlFor="glucose">Glucose (mg/dL)</Label>
                             <Input id="glucose" type="number" value={glucose ?? ""} onChange={(e) => setGlucose(e.target.value ? Number(e.target.value) : null)} />
                         </div>
@@ -608,7 +614,7 @@ export default function App() {
                         <DialogHeader>
                             <DialogTitle>{heartRate === null ? "Add" : "Edit"} Heart Rate</DialogTitle>
                         </DialogHeader>
-                        <div style={{ paddingTop: 8 }}>
+                        <div>
                             <Label htmlFor="hr">Heart Rate (bpm)</Label>
                             <Input id="hr" type="number" value={heartRate ?? ""} onChange={(e) => setHeartRate(e.target.value ? Number(e.target.value) : null)} />
                         </div>
@@ -653,8 +659,7 @@ export default function App() {
                             <div>
                                 <Slider id="tired" value={[tired ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setTired(v[0])} />
                                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                                    <span>0 • Good / No issues</span>
-                                    <span>5</span>
+                                    <span>0 • Good</span>
                                     <span>10 • Awful</span>
                                 </div>
                             </div>
@@ -677,8 +682,7 @@ export default function App() {
                             <div>
                                 <Slider id="headache" value={[headache ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setHeadache(v[0])} />
                                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                                    <span>0 • Good / No issues</span>
-                                    <span>5</span>
+                                    <span>0 • Good</span>
                                     <span>10 • Awful</span>
                                 </div>
                             </div>
@@ -701,8 +705,7 @@ export default function App() {
                             <div>
                                 <Slider id="back" value={[backAche ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setBackAche(v[0])} />
                                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                                    <span>0 • Good / No issues</span>
-                                    <span>5</span>
+                                    <span>0 • Good</span>
                                     <span>10 • Awful</span>
                                 </div>
                             </div>
@@ -719,9 +722,9 @@ export default function App() {
                         <DialogHeader>
                             <DialogTitle>Losartan 50mg</DialogTitle>
                         </DialogHeader>
-                        <div style={{ paddingTop: 8 }}>
+                        <div>
                             <Label htmlFor="losartan">Did you take Losartan today?</Label>
-                            <div style={{ marginTop: 8 }}>
+                            <div style={{ marginTop: 16 }}>
                                 <Switch checked={losartan ?? false} onCheckedChange={setLosartan} />
                                 <span style={{ marginLeft: 12 }}>{losartan ? "Yes" : "No"}</span>
                             </div>
