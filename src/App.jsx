@@ -282,12 +282,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Activity style={{ width: 24, height: 24, color: weight !== null ? "#16a34a" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Weight</h2>
+                            <div className="icon-row">
+                                <Activity style={{ width: 24, height: 24, color: weight !== null ? "#16a34a" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Weight</h2>
                             {weight !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{weight} lbs</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.weightUpdatedAt ? new Date(dayValues.weightUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#16a34a" }}>{weight} lbs</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.weightUpdatedAt ? new Date(dayValues.weightUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "weight" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "weight" })}><LineChartIcon /> Chart</Button>
@@ -296,7 +298,7 @@ export default function App() {
                             ) : (
                                 <>
                                     <Button className="btn-add" onClick={() => setOpen({ type: "weight" })}>+ Add</Button>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
+                                    <p className="card-updated">No data yet</p>
                                 </>
                             )}
                         </div>
@@ -307,12 +309,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Moon style={{ width: 24, height: 24, color: tired !== null ? "#4f46e5" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Tired</h2>
+                            <div className="icon-row">
+                                <Moon style={{ width: 24, height: 24, color: tired !== null ? "#4f46e5" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Tired</h2>
                             {tired !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#4f46e5" }}>{tired} / 10</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.tiredUpdatedAt ? new Date(dayValues.tiredUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#4f46e5" }}>{tired} / 10</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.tiredUpdatedAt ? new Date(dayValues.tiredUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "tired" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "tired" })}><LineChartIcon /> Chart</Button>
@@ -321,7 +325,7 @@ export default function App() {
                             ) : (
                                 <>
                                     <Button className="btn-add" onClick={() => setOpen({ type: "tired" })}>+ Add</Button>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
+                                    <p className="card-updated">No data yet</p>
                                 </>
                             )}
                         </div>
@@ -332,12 +336,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Brain style={{ width: 24, height: 24, color: headache !== null ? "#7c3aed" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Headache</h2>
+                            <div className="icon-row">
+                                <Brain style={{ width: 24, height: 24, color: headache !== null ? "#7c3aed" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Headache</h2>
                             {headache !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#7c3aed" }}>{headache} / 10</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.headacheUpdatedAt ? new Date(dayValues.headacheUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#7c3aed" }}>{headache} / 10</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.headacheUpdatedAt ? new Date(dayValues.headacheUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "headache" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "headache" })}><LineChartIcon /> Chart</Button>
@@ -346,7 +352,7 @@ export default function App() {
                             ) : (
                                 <>
                                     <Button className="btn-add" onClick={() => setOpen({ type: "headache" })}>+ Add</Button>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
+                                    <p className="card-updated">No data yet</p>
                                 </>
                             )}
                         </div>
@@ -357,12 +363,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Bone style={{ width: 24, height: 24, color: backAche !== null ? "#f59e0b" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Back Ache</h2>
+                            <div className="icon-row">
+                                <Bone style={{ width: 24, height: 24, color: backAche !== null ? "#f59e0b" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Back Ache</h2>
                             {backAche !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#f59e0b" }}>{backAche} / 10</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.backAcheUpdatedAt ? new Date(dayValues.backAcheUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#f59e0b" }}>{backAche} / 10</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.backAcheUpdatedAt ? new Date(dayValues.backAcheUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "back" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "back" })}><LineChartIcon /> Chart</Button>
@@ -371,7 +379,7 @@ export default function App() {
                             ) : (
                                 <>
                                     <Button className="btn-add" onClick={() => setOpen({ type: "back" })}>+ Add</Button>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
+                                    <p className="card-updated">No data yet</p>
                                 </>
                             )}
                         </div>
@@ -382,12 +390,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Heart style={{ width: 24, height: 24, color: heartRate !== null ? "#dc2626" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Heart Rate</h2>
+                            <div className="icon-row">
+                                <Heart style={{ width: 24, height: 24, color: heartRate !== null ? "#dc2626" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Heart Rate</h2>
                             {heartRate !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#dc2626" }}>{heartRate} bpm</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.heartUpdatedAt ? new Date(dayValues.heartUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#dc2626" }}>{heartRate} bpm</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.heartUpdatedAt ? new Date(dayValues.heartUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "heart" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "heart" })}><LineChartIcon /> Chart</Button>
@@ -407,12 +417,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Droplet style={{ width: 24, height: 24, color: glucose !== null ? "#2563eb" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Glucose</h2>
+                            <div className="icon-row">
+                                <Droplet style={{ width: 24, height: 24, color: glucose !== null ? "#2563eb" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Glucose</h2>
                             {glucose !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#2563eb" }}>{glucose} mg/dL</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.glucoseUpdatedAt ? new Date(dayValues.glucoseUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#2563eb" }}>{glucose} mg/dL</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.glucoseUpdatedAt ? new Date(dayValues.glucoseUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "glucose" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "glucose" })}><LineChartIcon /> Chart</Button>
@@ -432,12 +444,14 @@ export default function App() {
                 <Card>
                     <CardContent>
                         <div style={{ textAlign: "center" }}>
-                            <Gauge style={{ width: 24, height: 24, color: bpSystolic !== null && bpDiastolic !== null ? "#16a34a" : "#9ca3af" }} />
-                            <h2 style={{ fontSize: 16, fontWeight: 600 }}>Blood Pressure</h2>
+                            <div className="icon-row">
+                                <Gauge style={{ width: 24, height: 24, color: bpSystolic !== null && bpDiastolic !== null ? "#16a34a" : "#9ca3af" }} />
+                            </div>
+                            <h2 className="card-title">Blood Pressure</h2>
                             {bpSystolic !== null && bpDiastolic !== null ? (
                                 <>
-                                    <p style={{ fontSize: 20, fontWeight: 700, color: "#16a34a" }}>{bpSystolic}/{bpDiastolic}</p>
-                                    <p style={{ fontSize: 12, color: "#9ca3af" }}>Updated {fmtTime(dayValues.bpUpdatedAt ? new Date(dayValues.bpUpdatedAt) : null) ?? "—"}</p>
+                                    <p className="card-data" style={{ color: "#16a34a" }}>{bpSystolic}/{bpDiastolic}</p>
+                                    <p className="card-updated">Updated {fmtTime(dayValues.bpUpdatedAt ? new Date(dayValues.bpUpdatedAt) : null) ?? "—"}</p>
                                     <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                                         <Button variant="secondary" onClick={() => setOpen({ type: "bp" })}>Edit</Button>
                                         <Button variant="ghost" onClick={() => setOpen({ type: "chart", metric: "bp" })}><LineChartIcon /> Chart</Button>

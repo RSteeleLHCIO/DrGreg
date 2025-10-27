@@ -85,3 +85,28 @@ input[type="text"] {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 12px;
 }
+
+/* Card typography */
+.card-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 4px 0 2px 0;
+}
+
+.card-data {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 2px 0 4px 0;
+}
+
+.card-updated {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0;
+}
+
+.card .icon-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
