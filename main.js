@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +52,13 @@ export default function HealthAppUI() {
     bpSystolic: number | null;
     bpDiastolic: number | null;
     bpUpdatedAt?: string | null;
+    // New wellness 1–10 ratings
+    tired: number | null;
+    tiredUpdatedAt?: string | null;
+    headache: number | null;
+    headacheUpdatedAt?: string | null;
+    backAche: number | null;
+    backAcheUpdatedAt?: string | null;
   };
 
   const [records, setRecords] = useState<Record<string, DayRecord>>(() => {
@@ -67,6 +74,12 @@ export default function HealthAppUI() {
         bpSystolic: 122,
         bpDiastolic: 78,
         bpUpdatedAt: new Date().toISOString(),
+        tired: 3,
+        tiredUpdatedAt: new Date().toISOString(),
+        headache: 1,
+        headacheUpdatedAt: new Date().toISOString(),
+        backAche: 2,
+        backAcheUpdatedAt: new Date().toISOString(),
       },
       // Example: a past day with different values (for demo)
       "2025-08-15": {
@@ -79,6 +92,12 @@ export default function HealthAppUI() {
         bpSystolic: 124,
         bpDiastolic: 78,
         bpUpdatedAt: new Date("2025-08-15T08:20:00").toISOString(),
+        tired: 5,
+        tiredUpdatedAt: new Date("2025-08-15T07:40:00").toISOString(),
+        headache: 2,
+        headacheUpdatedAt: new Date("2025-08-15T07:50:00").toISOString(),
+        backAche: 4,
+        backAcheUpdatedAt: new Date("2025-08-15T07:55:00").toISOString(),
       },
     };
   });
@@ -98,6 +117,12 @@ export default function HealthAppUI() {
     bpSystolic: null,
     bpDiastolic: null,
     bpUpdatedAt: null,
+    tired: null,
+    tiredUpdatedAt: null,
+    headache: null,
+    headacheUpdatedAt: null,
+    backAche: null,
+    backAcheUpdatedAt: null,
   };
 
   // Local state mirrors for inputs (so dialogs edit the selected day)
@@ -106,6 +131,9 @@ export default function HealthAppUI() {
   const [heartRate, setHeartRate] = useState<number | null>(dayValues.heartRate);
   const [bpSystolic, setBpSystolic] = useState<number | null>(dayValues.bpSystolic);
   const [bpDiastolic, setBpDiastolic] = useState<number | null>(dayValues.bpDiastolic);
+  const [tired, setTired] = useState<number | null>(dayValues.tired);
+  const [headache, setHeadache] = useState<number | null>(dayValues.headache);
+  const [backAche, setBackAche] = useState<number | null>(dayValues.backAche);
 
   // Sync local card values whenever the selected date changes
   useEffect(() => {
@@ -119,22 +147,34 @@ export default function HealthAppUI() {
       bpSystolic: null,
       bpDiastolic: null,
       bpUpdatedAt: null,
+      tired: null,
+      tiredUpdatedAt: null,
+      headache: null,
+      headacheUpdatedAt: null,
+      backAche: null,
+      backAcheUpdatedAt: null,
     };
     setWeight(v.weight);
     setGlucose(v.glucose);
     setHeartRate(v.heartRate);
     setBpSystolic(v.bpSystolic);
     setBpDiastolic(v.bpDiastolic);
+    setTired(v.tired);
+    setHeadache(v.headache);
+    setBackAche(v.backAche);
   }, [records, selectedKey]);
 
   // --- Dialog state ----------------------------------------------------------
-  type ChartMetric = "weight" | "glucose" | "heart" | "bp";
+  type ChartMetric = "weight" | "glucose" | "heart" | "bp" | "tired" | "headache" | "back";
   const [open, setOpen] = useState<
     | null
     | { type: "weight" }
     | { type: "glucose" }
     | { type: "heart" }
     | { type: "bp" }
+    | { type: "tired" }
+    | { type: "headache" }
+    | { type: "back" }
     | { type: "date" }
     | { type: "chart"; metric: ChartMetric }
   >(null);
@@ -152,6 +192,12 @@ export default function HealthAppUI() {
         bpSystolic: null,
         bpDiastolic: null,
         bpUpdatedAt: null,
+        tired: null,
+        tiredUpdatedAt: null,
+        headache: null,
+        headacheUpdatedAt: null,
+        backAche: null,
+        backAcheUpdatedAt: null,
       };
       return { ...prev, [selectedKey]: { ...current, ...update } };
     });
@@ -178,7 +224,15 @@ export default function HealthAppUI() {
   // Build modifiers for the calendar (days with data get a dot)
   const daysWithData = useMemo(() => {
     return Object.entries(records)
-      .filter(([, v]) => v.weight !== null || v.glucose !== null || v.heartRate !== null || (v.bpSystolic !== null && v.bpDiastolic !== null))
+      .filter(([, v]) =>
+        v.weight !== null ||
+        v.glucose !== null ||
+        v.heartRate !== null ||
+        (v.bpSystolic !== null && v.bpDiastolic !== null) ||
+        v.tired !== null ||
+        v.headache !== null ||
+        v.backAche !== null
+      )
       .map(([k]) => new Date(k + "T00:00:00"));
   }, [records]);
 
@@ -211,13 +265,28 @@ export default function HealthAppUI() {
       if (metric === "weight") data.push({ date: label, value: rec.weight ?? null });
       else if (metric === "glucose") data.push({ date: label, value: rec.glucose ?? null });
       else if (metric === "heart") data.push({ date: label, value: rec.heartRate ?? null });
+      else if (metric === "tired") data.push({ date: label, value: rec.tired ?? null });
+      else if (metric === "headache") data.push({ date: label, value: rec.headache ?? null });
+      else if (metric === "back") data.push({ date: label, value: rec.backAche ?? null });
       else if (metric === "bp") data.push({ date: label, sys: rec.bpSystolic ?? null, dia: rec.bpDiastolic ?? null });
     }
     return data;
   }
 
   const chartTitle = (m: ChartMetric) =>
-    m === "weight" ? "Weight (last 14 days)" : m === "glucose" ? "Glucose (last 14 days)" : m === "heart" ? "Heart Rate (last 14 days)" : "Blood Pressure (last 14 days)";
+    m === "weight"
+      ? "Weight (last 14 days)"
+      : m === "glucose"
+      ? "Glucose (last 14 days)"
+      : m === "heart"
+      ? "Heart Rate (last 14 days)"
+      : m === "bp"
+      ? "Blood Pressure (last 14 days)"
+      : m === "tired"
+      ? "Tired (1–10, last 14 days)"
+      : m === "headache"
+      ? "Headache (1–10, last 14 days)"
+      : "Back Ache (1–10, last 14 days)";
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
@@ -237,6 +306,7 @@ export default function HealthAppUI() {
         </div>
       </div>
 
+      {/* Cards grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Weight */}
         <Card className="rounded-2xl shadow">
@@ -347,6 +417,81 @@ export default function HealthAppUI() {
             )}
           </CardContent>
         </Card>
+
+        {/* Tired (1–10) */}
+        <Card className="rounded-2xl shadow">
+          <CardContent className="p-4 text-center space-y-2">
+            <Moon className={`mx-auto w-6 h-6 ${tired !== null ? "text-indigo-600" : "text-gray-400"}`} />
+            <h2 className="text-lg font-semibold">Tired</h2>
+            {tired !== null ? (
+              <>
+                <p className="text-2xl font-bold text-indigo-600">{tired} / 10</p>
+                <p className="text-xs text-gray-400">Updated {fmtTime(dayValues.tiredUpdatedAt ? new Date(dayValues.tiredUpdatedAt) : null) ?? "—"}</p>
+                <div className="flex gap-2 justify-center pt-1">
+                  <Button variant="secondary" className="rounded-2xl px-4 py-2" onClick={() => setOpen({ type: "tired" })}>Edit</Button>
+                  <Button variant="ghost" className="rounded-2xl px-3 py-2" onClick={() => setOpen({ type: "chart", metric: "tired" })}>
+                    <LineChartIcon className="w-4 h-4 mr-1" /> Chart
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button className="mt-4 rounded-2xl px-4 py-2 w-full" onClick={() => setOpen({ type: "tired" })}>+ Add</Button>
+                <p className="text-sm text-gray-400">No data yet</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Headache (1–10) */}
+        <Card className="rounded-2xl shadow">
+          <CardContent className="p-4 text-center space-y-2">
+            <Brain className={`mx-auto w-6 h-6 ${headache !== null ? "text-purple-600" : "text-gray-400"}`} />
+            <h2 className="text-lg font-semibold">Headache</h2>
+            {headache !== null ? (
+              <>
+                <p className="text-2xl font-bold text-purple-600">{headache} / 10</p>
+                <p className="text-xs text-gray-400">Updated {fmtTime(dayValues.headacheUpdatedAt ? new Date(dayValues.headacheUpdatedAt) : null) ?? "—"}</p>
+                <div className="flex gap-2 justify-center pt-1">
+                  <Button variant="secondary" className="rounded-2xl px-4 py-2" onClick={() => setOpen({ type: "headache" })}>Edit</Button>
+                  <Button variant="ghost" className="rounded-2xl px-3 py-2" onClick={() => setOpen({ type: "chart", metric: "headache" })}>
+                    <LineChartIcon className="w-4 h-4 mr-1" /> Chart
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button className="mt-4 rounded-2xl px-4 py-2 w-full" onClick={() => setOpen({ type: "headache" })}>+ Add</Button>
+                <p className="text-sm text-gray-400">No data yet</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Back Ache (1–10) */}
+        <Card className="rounded-2xl shadow">
+          <CardContent className="p-4 text-center space-y-2">
+            <Bone className={`mx-auto w-6 h-6 ${backAche !== null ? "text-amber-600" : "text-gray-400"}`} />
+            <h2 className="text-lg font-semibold">Back Ache</h2>
+            {backAche !== null ? (
+              <>
+                <p className="text-2xl font-bold text-amber-600">{backAche} / 10</p>
+                <p className="text-xs text-gray-400">Updated {fmtTime(dayValues.backAcheUpdatedAt ? new Date(dayValues.backAcheUpdatedAt) : null) ?? "—"}</p>
+                <div className="flex gap-2 justify-center pt-1">
+                  <Button variant="secondary" className="rounded-2xl px-4 py-2" onClick={() => setOpen({ type: "back" })}>Edit</Button>
+                  <Button variant="ghost" className="rounded-2xl px-3 py-2" onClick={() => setOpen({ type: "chart", metric: "back" })}>
+                    <LineChartIcon className="w-4 h-4 mr-1" /> Chart
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button className="mt-4 rounded-2xl px-4 py-2 w-full" onClick={() => setOpen({ type: "back" })}>+ Add</Button>
+                <p className="text-sm text-gray-400">No data yet</p>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Dialogs */}
@@ -399,7 +544,7 @@ export default function HealthAppUI() {
                   <LineChart data={buildSeries(open.metric, selectedDate)} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} domain={[0, open.metric === "weight" || open.metric === "glucose" || open.metric === "heart" ? "auto" : 10]} />
                     <Tooltip />
                     <Line type="monotone" dataKey="value" dot={false} strokeWidth={2} />
                   </LineChart>
@@ -482,6 +627,57 @@ export default function HealthAppUI() {
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => { upsertSelectedDay({ bpSystolic, bpDiastolic, bpUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+
+        {/* Tired (1–10) */}
+        {open?.type === "tired" && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Tired (1–10)</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label htmlFor="tired">Tired (1–10)</Label>
+              <Input id="tired" type="number" min={1} max={10} value={tired ?? ""} onChange={(e) => setTired(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+              <Button onClick={() => { upsertSelectedDay({ tired, tiredUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+
+        {/* Headache (1–10) */}
+        {open?.type === "headache" && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Headache (1–10)</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label htmlFor="headache">Headache (1–10)</Label>
+              <Input id="headache" type="number" min={1} max={10} value={headache ?? ""} onChange={(e) => setHeadache(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+              <Button onClick={() => { upsertSelectedDay({ headache, headacheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+
+        {/* Back Ache (1–10) */}
+        {open?.type === "back" && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Back Ache (1–10)</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-2">
+              <Label htmlFor="back">Back Ache (1–10)</Label>
+              <Input id="back" type="number" min={1} max={10} value={backAche ?? ""} onChange={(e) => setBackAche(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
+            </div>
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+              <Button onClick={() => { upsertSelectedDay({ backAche, backAcheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
