@@ -179,9 +179,19 @@ export default function App() {
         setSelectedDate(d);
     }
     function nextDay() {
+        // Prevent advancing into future dates
+        const todayKey = toKey(today);
+        const selKey = toKey(selectedDate);
+        if (selKey === todayKey) return; // already at today
         const d = new Date(selectedDate);
         d.setDate(d.getDate() + 1);
-        setSelectedDate(d);
+        // clamp to today
+        const newKey = toKey(d);
+        if (newKey > todayKey) {
+            setSelectedDate(new Date(today));
+        } else {
+            setSelectedDate(d);
+        }
     }
 
     const niceDate = selectedDate.toLocaleDateString(undefined, {
@@ -270,9 +280,12 @@ export default function App() {
                     <Button variant="outline" onClick={() => setOpen({ type: "date" })}>
                         <CalendarDays style={{ marginRight: 8 }} /> {niceDate}
                     </Button>
-                    <Button variant="ghost" onClick={nextDay} aria-label="Next day">
-                        <ChevronRight />
-                    </Button>
+                    {/* Hide forward caret when selected date is today */}
+                    {selectedKey !== toKey(today) && (
+                        <Button variant="ghost" onClick={nextDay} aria-label="Next day">
+                            <ChevronRight />
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -398,10 +411,10 @@ export default function App() {
                                 <>
                                     <p className="card-data" style={{ color: "#dc2626" }}>{heartRate} bpm</p>
                                     <p className="card-updated">Updated {fmtTime(dayValues.heartUpdatedAt ? new Date(dayValues.heartUpdatedAt) : null) ?? "—"}</p>
-                                            <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                                                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "heart" })}><Edit style={{ width: 16, height: 16 }} /></Button>
-                                                <Button variant="ghost" className="btn-icon" aria-label="Open heart rate chart" onClick={() => setOpen({ type: "chart", metric: "heart" })}><LineChartIcon /></Button>
-                                            </div>
+                                    <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
+                                        <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "heart" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                                        <Button variant="ghost" className="btn-icon" aria-label="Open heart rate chart" onClick={() => setOpen({ type: "chart", metric: "heart" })}><LineChartIcon /></Button>
+                                    </div>
                                 </>
                             ) : (
                                 <>
