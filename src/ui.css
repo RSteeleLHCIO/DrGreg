@@ -120,3 +120,10 @@ input[type="text"] {
     align-items: center;
     justify-content: center;
 }
+
+/* header selected date under Overview */
+.header-date {
+    font-size: 14px;
+    color: var(--muted);
+    margin-top: 4px;
+}

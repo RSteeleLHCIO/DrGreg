@@ -272,13 +272,17 @@ export default function App() {
         <div style={{ padding: 24 }}>
             {/* Header / Date Picker */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <h1 style={{ fontSize: 20, fontWeight: 700 }}>Overview</h1>
+                <div>
+                    <h1 style={{ fontSize: 20, fontWeight: 700 }}>Overview</h1>
+                    <div className="header-date">{niceDate}</div>
+                </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <Button variant="ghost" onClick={prevDay} aria-label="Previous day">
                         <ChevronLeft />
                     </Button>
-                    <Button variant="outline" onClick={() => setOpen({ type: "date" })}>
-                        <CalendarDays style={{ marginRight: 8 }} /> {niceDate}
+                    {/* icon-only date picker */}
+                    <Button variant="outline" className="btn-icon" aria-label="Select date" onClick={() => setOpen({ type: "date" })}>
+                        <CalendarDays />
                     </Button>
                     {/* Hide forward caret when selected date is today */}
                     {selectedKey !== toKey(today) && (
