@@ -10,6 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -283,10 +284,10 @@ export default function HealthAppUI() {
       : m === "bp"
       ? "Blood Pressure (last 14 days)"
       : m === "tired"
-      ? "Tired (1–10, last 14 days)"
+      ? "Tired (0–10, last 14 days)"
       : m === "headache"
-      ? "Headache (1–10, last 14 days)"
-      : "Back Ache (1–10, last 14 days)";
+      ? "Headache (0–10, last 14 days)"
+      : "Back Ache (0–10, last 14 days)";
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen">
@@ -635,12 +636,25 @@ export default function HealthAppUI() {
         {open?.type === "tired" && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Tired (1–10)</DialogTitle>
+              <DialogTitle>Edit Tired (0–10)</DialogTitle>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label htmlFor="tired">Tired (1–10)</Label>
-              <Input id="tired" type="number" min={1} max={10} value={tired ?? ""} onChange={(e) => setTired(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
-            </div>
+              <Label htmlFor="tired">Tired (0–10)</Label>
+              <div className="pt-1">
+                <Slider
+                  id="tired"
+                  value={[tired ?? 0]}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onValueChange={(v) => setTired(v[0])}
+                />
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                  <span>0 • Good / No issues</span>
+                  <span>5</span>
+                  <span>10 • Awful</span>
+                </div>
+              </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => { upsertSelectedDay({ tired, tiredUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
@@ -652,12 +666,25 @@ export default function HealthAppUI() {
         {open?.type === "headache" && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Headache (1–10)</DialogTitle>
+              <DialogTitle>Edit Headache (0–10)</DialogTitle>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label htmlFor="headache">Headache (1–10)</Label>
-              <Input id="headache" type="number" min={1} max={10} value={headache ?? ""} onChange={(e) => setHeadache(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
-            </div>
+              <Label htmlFor="headache">Headache (0–10)</Label>
+              <div className="pt-1">
+                <Slider
+                  id="headache"
+                  value={[headache ?? 0]}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onValueChange={(v) => setHeadache(v[0])}
+                />
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                  <span>0 • Good / No issues</span>
+                  <span>5</span>
+                  <span>10 • Awful</span>
+                </div>
+              </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => { upsertSelectedDay({ headache, headacheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
@@ -669,12 +696,25 @@ export default function HealthAppUI() {
         {open?.type === "back" && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Back Ache (1–10)</DialogTitle>
+              <DialogTitle>Edit Back Ache (0–10)</DialogTitle>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label htmlFor="back">Back Ache (1–10)</Label>
-              <Input id="back" type="number" min={1} max={10} value={backAche ?? ""} onChange={(e) => setBackAche(e.target.value ? Math.max(1, Math.min(10, Number(e.target.value))) : null)} />
-            </div>
+              <Label htmlFor="back">Back Ache (0–10)</Label>
+              <div className="pt-1">
+                <Slider
+                  id="back"
+                  value={[backAche ?? 0]}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onValueChange={(v) => setBackAche(v[0])}
+                />
+                <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                  <span>0 • Good / No issues</span>
+                  <span>5</span>
+                  <span>10 • Awful</span>
+                </div>
+              </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => { upsertSelectedDay({ backAche, backAcheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
@@ -685,3 +725,4 @@ export default function HealthAppUI() {
     </div>
   );
 }
+
