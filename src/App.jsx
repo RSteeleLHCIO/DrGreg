@@ -40,22 +40,31 @@ export default function App() {
     return {
       dataPoints: {
         "weight": {
-          title: "Weight", uom: "lbs", icon: Activity, dayValue: {
+          title: "Weight", uom: "lbs", field: "weight", icon: Activity, dayValue: {
             [todayKey]: { value: 172, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 174, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
           }
         },
         "heart": {
-          title: "Heart Rate", uom: "bpm", icon: Heart, dayValue: {
+          title: "Heart Rate", uom: "bpm", field: "heartRate", icon: Heart, dayValue: {
             [todayKey]: { value: 76, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 88, updatedAt: new Date("2025-08-15T08:15:00").toISOString() }
           }
         },
         "glucose": {
-          title: "Glucose", uom: "mg/dL", icon: Droplet, dayValue: {
+          title: "Glucose", uom: "mg/dL", field: "glucose", icon: Droplet, dayValue: {
             [todayKey]: { value: 102, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T08:05:00").toISOString() }
           }
+        },
+        "tired": {
+          title: "Tired", uom: "/10", field: "tired", type: "scale", icon: Moon, color: "#4f46e5", dayValue: {}
+        },
+        "headache": {
+          title: "Headache", uom: "/10", field: "headache", type: "scale", icon: Brain, color: "#7c3aed", dayValue: {}
+        },
+        "back": {
+          title: "Back Ache", uom: "/10", field: "backAche", type: "scale", icon: Bone, color: "#f59e0b", dayValue: {}
         },
       },
       [todayKey]: {
@@ -321,21 +330,25 @@ export default function App() {
           const dataPoints = records.dataPoints ?? {};
           return Object.keys(dataPoints).map((metric) => {
             const meta = dataPoints[metric] ?? {};
-            const dp = (meta.dayValue && meta.dayValue[selectedKey]) ?? { value: null, updatedAt: null };
+            // fallback to per-day record field if metadata dayValue is not populated
+            const fallbackValue = records[selectedKey]?.[meta.field] ?? null;
+            const fallbackUpdated = records[selectedKey]?.[`${meta.field}UpdatedAt`] ?? null;
+            const dp = (meta.dayValue && meta.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
             const hasValue = dp.value !== null && dp.value !== undefined;
             const Icon = meta.icon ?? Activity;
+            const color = meta.color ?? (meta.type === "scale" ? "#4f46e5" : "#16a34a");
 
             return (
               <Card key={metric}>
                 <CardContent>
                   <div style={{ textAlign: "center" }}>
                     <div className="icon-row">
-                      <Icon style={{ width: 24, height: 24, color: hasValue ? "#16a34a" : "#9ca3af" }} />
+                      <Icon style={{ width: 24, height: 24, color: hasValue ? color : "#9ca3af" }} />
                     </div>
                     <h2 className="card-title">{meta.title}</h2>
                     {hasValue ? (
                       <>
-                        <p className="card-data" style={{ color: "#16a34a" }}>{dp.value} {meta.uom}</p>
+                        <p className="card-data" style={{ color }}>{meta.type === "scale" ? `${dp.value} / 10` : `${dp.value} ${meta.uom ?? ""}`}</p>
                         <p className="card-updated">Updated {fmtTime(dp.updatedAt ? new Date(dp.updatedAt) : null) ?? "—"}</p>
                         <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                           <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: metric })}><Edit style={{ width: 16, height: 16 }} /></Button>
@@ -357,86 +370,7 @@ export default function App() {
 
 
 
-        {/* Tired (1–10) */}
-        <Card>
-          <CardContent>
-            <div style={{ textAlign: "center" }}>
-              <div className="icon-row">
-                <Moon style={{ width: 24, height: 24, color: tired !== null ? "#4f46e5" : "#9ca3af" }} />
-              </div>
-              <h2 className="card-title">Tired</h2>
-              {tired !== null ? (
-                <>
-                  <p className="card-data" style={{ color: "#4f46e5" }}>{tired} / 10</p>
-                  <p className="card-updated">Updated {fmtTime(dayValues.tiredUpdatedAt ? new Date(dayValues.tiredUpdatedAt) : null) ?? "—"}</p>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                    <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "tired" })}><Edit style={{ width: 16, height: 16 }} /></Button>
-                    <Button variant="ghost" className="btn-icon" aria-label="Open tired chart" onClick={() => setOpen({ type: "chart", metric: "tired" })}><LineChartIcon /></Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Button className="btn-add" onClick={() => setOpen({ type: "tired" })}>+ Add</Button>
-                  <p className="card-updated">No data yet</p>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Headache (1–10) */}
-        <Card>
-          <CardContent>
-            <div style={{ textAlign: "center" }}>
-              <div className="icon-row">
-                <Brain style={{ width: 24, height: 24, color: headache !== null ? "#7c3aed" : "#9ca3af" }} />
-              </div>
-              <h2 className="card-title">Headache</h2>
-              {headache !== null ? (
-                <>
-                  <p className="card-data" style={{ color: "#7c3aed" }}>{headache} / 10</p>
-                  <p className="card-updated">Updated {fmtTime(dayValues.headacheUpdatedAt ? new Date(dayValues.headacheUpdatedAt) : null) ?? "—"}</p>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                    <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "headache" })}><Edit style={{ width: 16, height: 16 }} /></Button>
-                    <Button variant="ghost" className="btn-icon" aria-label="Open headache chart" onClick={() => setOpen({ type: "chart", metric: "headache" })}><LineChartIcon /></Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Button className="btn-add" onClick={() => setOpen({ type: "headache" })}>+ Add</Button>
-                  <p className="card-updated">No data yet</p>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Back Ache (1–10) */}
-        <Card>
-          <CardContent>
-            <div style={{ textAlign: "center" }}>
-              <div className="icon-row">
-                <Bone style={{ width: 24, height: 24, color: backAche !== null ? "#f59e0b" : "#9ca3af" }} />
-              </div>
-              <h2 className="card-title">Back Ache</h2>
-              {backAche !== null ? (
-                <>
-                  <p className="card-data" style={{ color: "#f59e0b" }}>{backAche} / 10</p>
-                  <p className="card-updated">Updated {fmtTime(dayValues.backAcheUpdatedAt ? new Date(dayValues.backAcheUpdatedAt) : null) ?? "—"}</p>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                    <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "back" })}><Edit style={{ width: 16, height: 16 }} /></Button>
-                    <Button variant="ghost" className="btn-icon" aria-label="Open back ache chart" onClick={() => setOpen({ type: "chart", metric: "back" })}><LineChartIcon /></Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Button className="btn-add" onClick={() => setOpen({ type: "back" })}>+ Add</Button>
-                  <p className="card-updated">No data yet</p>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
 
 
