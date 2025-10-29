@@ -34,37 +34,92 @@ function fmtTime(d) {
 }
 
 export default function App() {
+  // --- Static metric definitions -----------------------------------------------
+  const metricDefinitions = [
+    {
+      metricName: "weight",
+      title: "Weight",
+      uom: "lbs",
+      field: "weight",
+      icon: Activity,
+      kind: "singleValue"
+    },
+    {
+      metricName: "heart",
+      title: "Heart Rate",
+      uom: "bpm",
+      field: "heartRate",
+      icon: Heart,
+      kind: "singleValue"
+    },
+    {
+      metricName: "glucose",
+      title: "Glucose",
+      uom: "mg/dL",
+      field: "glucose",
+      icon: Droplet,
+      kind: "singleValue"
+    },
+    {
+      metricName: "tired",
+      title: "Tired",
+      uom: "/10",
+      field: "tired",
+      icon: Moon,
+      color: "#4f46e5",
+      kind: "slider"
+    },
+    {
+      metricName: "headache",
+      title: "Headache",
+      uom: "/10",
+      field: "headache",
+      icon: Brain,
+      color: "#7c3aed",
+      kind: "slider"
+    },
+    {
+      metricName: "back",
+      title: "Back Ache",
+      uom: "/10",
+      field: "backAche",
+      icon: Bone,
+      color: "#f59e0b",
+      kind: "slider"
+    }
+  ];
+
   // --- Per-day records store -------------------------------------------------
   const [records, setRecords] = useState(() => {
     const todayKey = toKey(new Date());
     return {
       dataPoints: {
         "weight": {
-          title: "Weight", uom: "lbs", field: "weight", icon: Activity, kind: "singleValue", dayValue: {
+          dayValue: {
             [todayKey]: { value: 172, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 174, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
           }
         },
         "heart": {
-          title: "Heart Rate", uom: "bpm", field: "heartRate", icon: Heart, kind: "singleValue", dayValue: {
+          dayValue: {
             [todayKey]: { value: 76, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 88, updatedAt: new Date("2025-08-15T08:15:00").toISOString() }
           }
         },
         "glucose": {
-          title: "Glucose", uom: "mg/dL", field: "glucose", icon: Droplet, kind: "singleValue", dayValue: {
+          dayValue: {
             [todayKey]: { value: 102, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T08:05:00").toISOString() }
           }
         },
         "tired": {
-          title: "Tired", uom: "/10", field: "tired", type: "scale", icon: Moon, color: "#4f46e5", kind: "slider", dayValue: {}
+          dayValue: {}
         },
         "headache": {
-          title: "Headache", uom: "/10", field: "headache", type: "scale", icon: Brain, color: "#7c3aed", kind: "slider", dayValue: {}
+          dayValue: {}
         },
         "back": {
-          title: "Back Ache", uom: "/10", field: "backAche", type: "scale", icon: Bone, color: "#f59e0b", kind: "slider", dayValue: {}
+          dayValue: {}
         },
       },
       [todayKey]: {
@@ -132,9 +187,25 @@ export default function App() {
 
   // Local state mirrors for inputs (so dialogs edit the selected day)
   const updateDayValues = (newData) => {
-    records.dataPoints[newData.metric].dayValue[selectedKey] ??= {}; 
-    records.dataPoints[newData.metric].dayValue[selectedKey] = { value: newData.inputValue, updatedAt: new Date().toISOString() };
-    setRecords(records);
+    const metricDef = metricDefinitions.find(def => def.metricName === newData.metric);
+    if (!metricDef) return; // Guard against invalid metric names
+
+    setRecords((prev) => {
+      const dp = prev.dataPoints[metricDef.metricName];
+      const updatedDataPoints = {
+        ...prev.dataPoints,
+        [metricDef.metricName]: {
+          dayValue: {
+            ...(dp?.dayValue ?? {}),
+            [selectedKey]: { value: newData.inputValue, updatedAt: new Date().toISOString() }
+          }
+        }
+      };
+      return {
+        ...prev,
+        dataPoints: updatedDataPoints
+      };
+    });
   };
 
   const [inputValue, setInputValue] = useState(null);
@@ -334,19 +405,19 @@ export default function App() {
       {/* Cards grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
         {(() => {
-          const dataPoints = records.dataPoints ?? {};
-          return Object.keys(dataPoints).map((metric) => {
-            const meta = dataPoints[metric] ?? {};
+          const points = records.dataPoints ?? {};
+          return metricDefinitions.map((meta) => {
+            const data = points[meta.metricName] ?? {};
             // fallback to per-day record field if metadata dayValue is not populated
             const fallbackValue = records[selectedKey]?.[meta.field] ?? null;
             const fallbackUpdated = records[selectedKey]?.[`${meta.field}UpdatedAt`] ?? null;
-            const dp = (meta.dayValue && meta.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
+            const dp = (data.dayValue && data.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
             const hasValue = dp.value !== null && dp.value !== undefined;
             const Icon = meta.icon ?? Activity;
-            const color = meta.color ?? (meta.type === "scale" ? "#4f46e5" : "#16a34a");
+            const color = meta.color ?? (meta.kind === "slider" ? "#4f46e5" : "#16a34a");
 
             return (
-              <Card key={metric}>
+              <Card key={meta.metricName}>
                 <CardContent>
                   <div style={{ textAlign: "center" }}>
                     <div className="icon-row">
@@ -355,17 +426,17 @@ export default function App() {
                     <h2 className="card-title">{meta.title}</h2>
                     {hasValue ? (
                       <>
-                        <p className="card-data" style={{ color }}>{meta.type === "scale" ? `${dp.value} / 10` : `${dp.value} ${meta.uom ?? ""}`}</p>
+                        <p className="card-data" style={{ color }}>{meta.kind === "slider" ? `${dp.value}/10` : `${dp.value} ${meta.uom ?? ""}`}</p>
                         <p className="card-updated">Updated {fmtTime(dp.updatedAt ? new Date(dp.updatedAt) : null) ?? "—"}</p>
                         <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                           <Button variant="secondary" className="btn-icon" onClick={() => {
                             setInputValue(dp.value);
-                            setOpen({ type: metric, ...meta, ...dp });
+                            setOpen({ type: meta.metricName, ...meta, ...dp });
                           }}
                           >
                             <Edit style={{ width: 16, height: 16 }} />
                           </Button>
-                          <Button variant="ghost" className="btn-icon" aria-label={`Open ${metric} chart`} onClick={() => setOpen({ type: "chart", metric })}><LineChartIcon /></Button>
+                          <Button variant="ghost" className="btn-icon" aria-label={`Open ${meta.metricName} chart`} onClick={() => setOpen({ type: "chart", metric: meta.metricName })}><LineChartIcon /></Button>
                         </div>
                       </>
                     ) : (
@@ -483,10 +554,23 @@ export default function App() {
             </DialogHeader>
             <div>
               <Label htmlFor={open.type}>{open.title} ({open.uom})</Label>
-              <Input id={open.type} type="number" value={inputValue ?? ""} onChange={(e) => setInputValue(e.target.value ? Number(e.target.value) : null)} />            </div>
+              <Input
+                id={open.type}
+                type="number"
+                style={{ width: "auto" }}
+                value={inputValue ?? ""}
+                onChange={(e) => setInputValue(e.target.value ? Number(e.target.value) : null)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    updateDayValues({ metric: open.type, inputValue });
+                    setOpen(null);
+                  }
+                }}
+              />
+            </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={(e) => { updateDayValues({ metric: open.type, inputValue}); setOpen(null); }}>Save</Button>
+              <Button onClick={() => { updateDayValues({ metric: open.type, inputValue }); setOpen(null); }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
@@ -514,71 +598,39 @@ export default function App() {
           </DialogContent>
         )}
 
-        {/* Tired (1–10) */}
-        {open?.type === "tired" && (
+        {/* 1-10 scale metrics (tired, headache, back) */}
+        {open?.kind === "slider" && (
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Edit Tired (0–10)</DialogTitle>
+              <DialogTitle>Edit {open.title}</DialogTitle>
             </DialogHeader>
             <div style={{ paddingTop: 8 }}>
-              <Label htmlFor="tired">Tired (0–10)</Label>
+              <Label htmlFor={open.type}>{open.title}</Label>
               <div>
-                <Slider id="tired" value={[tired ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setTired(v[0])} />
+                <Slider
+                  id={open.type}
+                  value={[inputValue ?? 0]}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onValueChange={(v) => setInputValue(v[0])}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      updateDayValues({ metric: open.type, inputValue });
+                      setOpen(null);
+                    }
+                  }}
+                />
                 <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
                   <span>0 • Good</span>
+                  <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>{inputValue ?? 0}</span>
                   <span>10 • Awful</span>
                 </div>
               </div>
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { upsertSelectedDay({ tired, tiredUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-
-        {/* Headache (1–10) */}
-        {open?.type === "headache" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Headache (0–10)</DialogTitle>
-            </DialogHeader>
-            <div style={{ paddingTop: 8 }}>
-              <Label htmlFor="headache">Headache (0–10)</Label>
-              <div>
-                <Slider id="headache" value={[headache ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setHeadache(v[0])} />
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>0 • Good</span>
-                  <span>10 • Awful</span>
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { upsertSelectedDay({ headache, headacheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-
-        {/* Back Ache (1–10) */}
-        {open?.type === "back" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Back Ache (0–10)</DialogTitle>
-            </DialogHeader>
-            <div style={{ paddingTop: 8 }}>
-              <Label htmlFor="back">Back Ache (0–10)</Label>
-              <div>
-                <Slider id="back" value={[backAche ?? 0]} min={0} max={10} step={1} onValueChange={(v) => setBackAche(v[0])} />
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>0 • Good</span>
-                  <span>10 • Awful</span>
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { upsertSelectedDay({ backAche, backAcheUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+              <Button onClick={() => { updateDayValues({ metric: open.type, inputValue }); setOpen(null); }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
