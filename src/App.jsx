@@ -425,7 +425,7 @@ export default function App() {
                     <h2 className="card-title">{meta.title}</h2>
                     {hasValue ? (
                       <>
-                        <p className="card-data" style={{ color }}>{displayValue}</p>
+                        <p className="card-data" style={{ color }}>{displayValue}{meta.kind === "slider" ? " of 10" : ""}</p>
                         <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
                         <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                           <Button variant="secondary" className="btn-icon" onClick={() => {
