@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, lazy, Suspense } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, LineChart as LineChartIcon, Moon, Brain, Bone, Edit, Pill } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, Moon, Brain, Bone, Edit, Pill } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +14,6 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
 import { Switch } from "./components/ui/switch";
-const ChartModal = lazy(() => import("./components/chart-modal"));
 
 // Helper to format a Date as YYYY-MM-DD (key for our records map)
 function toKey(d) {
@@ -35,58 +34,76 @@ function fmtTime(d) {
 
 export default function App() {
   // --- Static metric definitions -----------------------------------------------
-  const metricDefinitions = [
+  const cardDefinitions = [
     {
-      metricName: "weight",
+      metricNames: ["weight"],
+      cardName: "weight",
       title: "Weight",
       uom: "lbs",
-      field: "weight",
       icon: Activity,
       kind: "singleValue"
     },
     {
-      metricName: "heart",
+      metricNames: ["heart"],
+      cardName: "heart",
       title: "Heart Rate",
       uom: "bpm",
-      field: "heartRate",
       icon: Heart,
       kind: "singleValue"
     },
     {
-      metricName: "glucose",
+      metricNames: ["systolic", "diastolic"],
+      cardName: "blood-pressure",
+      title: "Blood Pressure",
+      uom: "",
+      icon: Activity,
+      kind: "singleValue"
+    },
+    {
+      metricNames: ["glucose"],
+      cardName: "glucose",
       title: "Glucose",
       uom: "mg/dL",
-      field: "glucose",
       icon: Droplet,
       kind: "singleValue"
     },
     {
-      metricName: "tired",
+      metricNames: ["tired"],
+      cardName: "tired",
       title: "Tired",
       uom: "/10",
-      field: "tired",
       icon: Moon,
       color: "#4f46e5",
       kind: "slider"
     },
     {
-      metricName: "headache",
+      metricNames: ["headache"],
+      cardName: "headache",
       title: "Headache",
       uom: "/10",
-      field: "headache",
       icon: Brain,
       color: "#7c3aed",
       kind: "slider"
     },
     {
-      metricName: "back",
+      metricNames: ["back"],
+      cardName: "back",
       title: "Back Ache",
       uom: "/10",
-      field: "backAche",
       icon: Bone,
       color: "#f59e0b",
       kind: "slider"
-    }
+    },
+    // Example multi-metric card:
+    // {
+    //   metricNames: ["tired", "headache", "back"],
+    //   cardName: "symptoms",
+    //   title: "Symptoms",
+    //   uom: "/10",
+    //   icon: Moon,
+    //   color: "#4f46e5",
+    //   kind: "slider"
+    // },
   ];
 
   // --- Per-day records store -------------------------------------------------
@@ -110,6 +127,18 @@ export default function App() {
           dayValue: {
             [todayKey]: { value: 102, updatedAt: new Date().toISOString() },
             "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T08:05:00").toISOString() }
+          }
+        },
+        "systolic": {
+          dayValue: {
+            [todayKey]: { value: 120, updatedAt: new Date().toISOString() },
+            "2025-08-15": { value: 130, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
+          }
+        },
+        "diastolic": {
+          dayValue: {
+            [todayKey]: { value: 80, updatedAt: new Date().toISOString() },
+            "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
           }
         },
         "tired": {
@@ -187,14 +216,11 @@ export default function App() {
 
   // Local state mirrors for inputs (so dialogs edit the selected day)
   const updateDayValues = (newData) => {
-    const metricDef = metricDefinitions.find(def => def.metricName === newData.metric);
-    if (!metricDef) return; // Guard against invalid metric names
-
     setRecords((prev) => {
-      const dp = prev.dataPoints[metricDef.metricName];
+      const dp = prev.dataPoints[newData.metric];
       const updatedDataPoints = {
         ...prev.dataPoints,
-        [metricDef.metricName]: {
+        [newData.metric]: {
           dayValue: {
             ...(dp?.dayValue ?? {}),
             [selectedKey]: { value: newData.inputValue, updatedAt: new Date().toISOString() }
@@ -331,45 +357,6 @@ export default function App() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // --- Chart helpers: build last-14-days series for a metric -----------------
-  function buildSeries(metric, anchor) {
-    const data = [];
-    const d = new Date(anchor);
-    for (let i = 13; i >= 0; i--) {
-      const itemDate = new Date(d);
-      itemDate.setDate(d.getDate() - i);
-      const key = toKey(itemDate);
-      const rec = records[key];
-      const label = itemDate.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
-      if (!rec) {
-        data.push({ date: label, value: null, sys: null, dia: null });
-        continue;
-      }
-      if (metric === "weight") data.push({ date: label, value: rec.weight ?? null });
-      else if (metric === "glucose") data.push({ date: label, value: rec.glucose ?? null });
-      else if (metric === "heart") data.push({ date: label, value: rec.heartRate ?? null });
-      else if (metric === "tired") data.push({ date: label, value: rec.tired ?? null });
-      else if (metric === "headache") data.push({ date: label, value: rec.headache ?? null });
-      else if (metric === "back") data.push({ date: label, value: rec.backAche ?? null });
-      else if (metric === "bp") data.push({ date: label, sys: rec.bpSystolic ?? null, dia: rec.bpDiastolic ?? null });
-    }
-    return data;
-  }
-
-  const chartTitle = (m) =>
-    m === "weight"
-      ? "Weight (last 14 days)"
-      : m === "glucose"
-        ? "Glucose (last 14 days)"
-        : m === "heart"
-          ? "Heart Rate (last 14 days)"
-          : m === "bp"
-            ? "Blood Pressure (last 14 days)"
-            : m === "tired"
-              ? "Tired (0–10, last 14 days)"
-              : m === "headache"
-                ? "Headache (0–10, last 14 days)"
-                : "Back Ache (0–10, last 14 days)";
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -406,18 +393,30 @@ export default function App() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
         {(() => {
           const points = records.dataPoints ?? {};
-          return metricDefinitions.map((meta) => {
-            const data = points[meta.metricName] ?? {};
-            // fallback to per-day record field if metadata dayValue is not populated
-            const fallbackValue = records[selectedKey]?.[meta.field] ?? null;
-            const fallbackUpdated = records[selectedKey]?.[`${meta.field}UpdatedAt`] ?? null;
-            const dp = (data.dayValue && data.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
-            const hasValue = dp.value !== null && dp.value !== undefined;
+          return cardDefinitions.map((meta) => {
+            // Gather values for all metrics in this card
+            const metricValues = meta.metricNames.map(metricName => {
+              const data = points[metricName] ?? {};
+              const fallbackValue = records[selectedKey]?.[metricName] ?? null;
+              const fallbackUpdated = records[selectedKey]?.[`${metricName}UpdatedAt`] ?? null;
+              const dp = (data.dayValue && data.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
+              return { value: dp.value, updatedAt: dp.updatedAt };
+            });
+            const hasValue = metricValues.some(v => v.value !== null && v.value !== undefined);
             const Icon = meta.icon ?? Activity;
             const color = meta.color ?? (meta.kind === "slider" ? "#4f46e5" : "#16a34a");
 
+            // Display values separated by '/'
+            const displayValue = metricValues.map((v, idx) =>
+              meta.kind === "slider"
+                ? `${v.value ?? "—"}`
+                : `${v.value ?? "—"} ${meta.uom ?? ""}`
+            ).join(" / ");
+            // Use the first updatedAt for display
+            const updatedAt = metricValues.find(v => v.updatedAt)?.updatedAt;
+
             return (
-              <Card key={meta.metricName}>
+              <Card key={meta.cardName}>
                 <CardContent>
                   <div style={{ textAlign: "center" }}>
                     <div className="icon-row">
@@ -426,22 +425,20 @@ export default function App() {
                     <h2 className="card-title">{meta.title}</h2>
                     {hasValue ? (
                       <>
-                        <p className="card-data" style={{ color }}>{meta.kind === "slider" ? `${dp.value}/10` : `${dp.value} ${meta.uom ?? ""}`}</p>
-                        <p className="card-updated">Updated {fmtTime(dp.updatedAt ? new Date(dp.updatedAt) : null) ?? "—"}</p>
+                        <p className="card-data" style={{ color }}>{displayValue}</p>
+                        <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
                         <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                           <Button variant="secondary" className="btn-icon" onClick={() => {
-                            setInputValue(dp.value);
-                            setOpen({ type: meta.metricName, ...meta, ...dp });
-                          }}
-                          >
+                            setInputValue(metricValues[0].value); // Only sets first metric for now
+                            setOpen({ type: meta.cardName, ...meta, metricValues });
+                          }}>
                             <Edit style={{ width: 16, height: 16 }} />
                           </Button>
-                          <Button variant="ghost" className="btn-icon" aria-label={`Open ${meta.metricName} chart`} onClick={() => setOpen({ type: "chart", metric: meta.metricName })}><LineChartIcon /></Button>
                         </div>
                       </>
                     ) : (
                       <>
-                        <Button className="btn-add" onClick={() => setOpen({ type: metric, ...meta, ...dp })}>+ Add</Button>
+                        <Button className="btn-add" onClick={() => setOpen({ type: meta.cardName, ...meta, metricValues })}>+ Add</Button>
                         <p className="card-updated">No data yet</p>
                       </>
                     )}
@@ -475,34 +472,6 @@ export default function App() {
           </CardContent>
         </Card>
 
-
-
-        {/* Blood Pressure */}
-        <Card>
-          <CardContent>
-            <div style={{ textAlign: "center" }}>
-              <div className="icon-row">
-                <Gauge style={{ width: 24, height: 24, color: bpSystolic !== null && bpDiastolic !== null ? "#16a34a" : "#9ca3af" }} />
-              </div>
-              <h2 className="card-title">Blood Pressure</h2>
-              {bpSystolic !== null && bpDiastolic !== null ? (
-                <>
-                  <p className="card-data" style={{ color: "#16a34a" }}>{bpSystolic}/{bpDiastolic}</p>
-                  <p className="card-updated">Updated {fmtTime(dayValues.bpUpdatedAt ? new Date(dayValues.bpUpdatedAt) : null) ?? "—"}</p>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                    <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "bp" })}><Edit style={{ width: 16, height: 16 }} /></Button>
-                    <Button variant="ghost" className="btn-icon" aria-label="Open blood pressure chart" onClick={() => setOpen({ type: "chart", metric: "bp" })}><LineChartIcon /></Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Button className="btn-add" onClick={() => setOpen({ type: "bp" })}>+ Add</Button>
-                  <p style={{ fontSize: 12, color: "#9ca3af" }}>No data yet</p>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Dialogs */}
@@ -532,19 +501,6 @@ export default function App() {
         )}
 
         {/* Chart modal (lazy-loaded) */}
-        {open?.type === "chart" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{chartTitle(open.metric)}</DialogTitle>
-            </DialogHeader>
-            <Suspense fallback={<div style={{ height: 288, display: "flex", alignItems: "center", justifyContent: "center" }}>Loading chart…</div>}>
-              <ChartModal metric={open.metric} buildSeries={buildSeries} selectedDate={selectedDate} />
-            </Suspense>
-            <DialogFooter>
-              <Button onClick={() => setOpen(null)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
 
         {/* Single Values */}
         {open?.kind === "singleValue" && (
@@ -553,24 +509,48 @@ export default function App() {
               <DialogTitle>Edit {open.title}</DialogTitle>
             </DialogHeader>
             <div>
-              <Label htmlFor={open.type}>{open.title} ({open.uom})</Label>
-              <Input
-                id={open.type}
-                type="number"
-                style={{ width: "auto" }}
-                value={inputValue ?? ""}
-                onChange={(e) => setInputValue(e.target.value ? Number(e.target.value) : null)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    updateDayValues({ metric: open.type, inputValue });
-                    setOpen(null);
-                  }
-                }}
-              />
+              {open.metricNames.length > 1 ? (
+                open.metricNames.map((metricName, idx) => (
+                  <div key={metricName} style={{ marginBottom: 12 }}>
+                    <Label htmlFor={metricName}>{metricName}{open.uom ? ` (${open.uom})` : ""}</Label>
+                    <Input
+                      id={metricName}
+                      type="number"
+                      style={{ width: "auto" }}
+                      value={open.metricValues?.[idx]?.value ?? ""}
+                      onChange={(e) => {
+                        const newValue = e.target.value ? Number(e.target.value) : null;
+                        const updatedValues = [...(open.metricValues ?? [])];
+                        updatedValues[idx] = { ...updatedValues[idx], value: newValue };
+                        setOpen({ ...open, metricValues: updatedValues });
+                      }}
+                    />
+                  </div>
+                ))
+              ) : (
+                <>
+                  <Label htmlFor={open.metricNames[0]}>{open.title} ({open.uom})</Label>
+                  <Input
+                    id={open.metricNames[0]}
+                    type="number"
+                    style={{ width: "auto" }}
+                    value={open.metricValues?.[0]?.value ?? ""}
+                    onChange={(e) => {
+                      const newValue = e.target.value ? Number(e.target.value) : null;
+                      setOpen({ ...open, metricValues: [{ ...open.metricValues?.[0], value: newValue }] });
+                    }}
+                  />
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { updateDayValues({ metric: open.type, inputValue }); setOpen(null); }}>Save</Button>
+              <Button onClick={() => {
+                open.metricNames.forEach((metricName, idx) => {
+                  updateDayValues({ metric: metricName, inputValue: open.metricValues?.[idx]?.value });
+                });
+                setOpen(null);
+              }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
