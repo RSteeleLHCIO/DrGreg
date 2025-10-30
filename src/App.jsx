@@ -309,16 +309,6 @@ export default function App() {
             const Icon = meta.icon ?? Activity;
             const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
 
-            // Display values separated by '/'
-            const displayValue = metricValues.map(mv => {
-              if (mv.kind === "slider") {
-                return `${mv.value ?? "—"}`;
-              } else if (mv.kind === "switch") {
-                return mv.value === true ? "Yes" : mv.value === false ? "No" : "—";
-              } else {
-                return `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`;
-              }
-            }).join(" / ");
             // Use the first updatedAt for display
             const updatedAt = metricValues.find(v => v.updatedAt)?.updatedAt;
 
@@ -339,7 +329,32 @@ export default function App() {
                     <h2 className="card-title">{meta.title}</h2>
                     {hasValue ? (
                       <>
-                        <p className="card-data" style={{ color }}>{displayValue}{meta.kind === "slider" ? " of 10" : ""}</p>
+                        <div className="card-data" style={{ color }}>
+                          {metricValues.map((mv, idx) => {
+                            let displayValue;
+                            if (mv.kind === "slider") {
+                              displayValue = `${mv.value ?? "—"}`;
+                            } else if (mv.kind === "switch") {
+                              displayValue = mv.value === true ? "Yes" : mv.value === false ? "No" : "—";
+                            } else {
+                              displayValue = `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`;
+                            }
+                            return (
+                              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                {metricValues.length > 1 ? (
+                                  <>
+                                    <span style={{ fontSize: "0.75em", fontWeight: "normal", marginRight: 4 }}>
+                                      {toSentenceCase(mv.metric)}:{" "}
+                                    </span>
+                                    {displayValue}
+                                  </>
+                                ) : (
+                                  displayValue
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                         <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
                       </>
                     ) : (
