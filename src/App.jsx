@@ -35,6 +35,10 @@ function fmtTime(d) {
   }
 }
 
+function toSentenceCase(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 export default function App() {
 
   // --- Static metric definitions -----------------------------------------------
@@ -149,43 +153,6 @@ export default function App() {
         "back": {
           dayValue: {}
         },
-      },
-      [todayKey]: {
-        weight: 172,
-        weightUpdatedAt: new Date().toISOString(),
-        glucose: 102,
-        glucoseUpdatedAt: new Date().toISOString(),
-        heartRate: 76,
-        heartUpdatedAt: new Date().toISOString(),
-        bpSystolic: 122,
-        bpDiastolic: 78,
-        bpUpdatedAt: new Date().toISOString(),
-        tired: 3,
-        tiredUpdatedAt: new Date().toISOString(),
-        headache: 1,
-        headacheUpdatedAt: new Date().toISOString(),
-        backAche: 2,
-        backAcheUpdatedAt: new Date().toISOString(),
-        losartan: false,
-        losartanUpdatedAt: new Date().toISOString(),
-      },
-      // Example: a past day with different values (for demo)
-      "2025-08-15": {
-        weight: 174,
-        weightUpdatedAt: new Date("2025-08-15T09:10:00").toISOString(),
-        glucose: 110,
-        glucoseUpdatedAt: new Date("2025-08-15T08:05:00").toISOString(),
-        heartRate: 88,
-        heartUpdatedAt: new Date("2025-08-15T08:15:00").toISOString(),
-        bpSystolic: 124,
-        bpDiastolic: 78,
-        bpUpdatedAt: new Date("2025-08-15T08:20:00").toISOString(),
-        tired: 5,
-        tiredUpdatedAt: new Date("2025-08-15T07:40:00").toISOString(),
-        headache: 2,
-        headacheUpdatedAt: new Date("2025-08-15T07:50:00").toISOString(),
-        backAche: 4,
-        backAcheUpdatedAt: new Date("2025-08-15T07:55:00").toISOString(),
       },
     };
   });
@@ -352,7 +319,7 @@ export default function App() {
             // Display values separated by '/'
             const displayValue = metricValues.map(mv =>
               mv.kind === "slider"
-                ? `${mv.value ?? "—"}/10`
+                ? `${mv.value ?? "—"}`
                 : `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`
             ).join(" / ");
             // Use the first updatedAt for display
@@ -361,7 +328,14 @@ export default function App() {
             return (
               <Card key={meta.cardName}>
                 <CardContent>
-                  <div style={{ textAlign: "center" }}>
+                  <div
+                    onClick={() => setOpen({
+                      type: meta.cardName,
+                      ...meta,
+                      metricValues
+                    })}
+                    style={{ cursor: "pointer", textAlign: "center" }}
+                  >
                     <div className="icon-row">
                       <Icon style={{ width: 24, height: 24, color: hasValue ? color : "#9ca3af" }} />
                     </div>
@@ -370,23 +344,9 @@ export default function App() {
                       <>
                         <p className="card-data" style={{ color }}>{displayValue}{meta.kind === "slider" ? " of 10" : ""}</p>
                         <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
-                        <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                          <Button variant="secondary" className="btn-icon" onClick={() => {
-                            setOpen({
-                              type: meta.cardName,
-                              ...meta,
-                              metricValues
-                            });
-                          }}>
-                            <Edit style={{ width: 16, height: 16 }} />
-                          </Button>
-                        </div>
                       </>
                     ) : (
-                      <>
-                        <Button className="btn-add" onClick={() => setOpen({ type: meta.cardName, ...meta, metricValues })}>+ Add</Button>
-                        <p className="card-updated">No data yet</p>
-                      </>
+                      <p className="card-updated">No data yet</p>
                     )}
                   </div>
                 </CardContent>
@@ -404,16 +364,16 @@ export default function App() {
         {/* Medication: Losartan */}
         <Card>
           <CardContent>
-            <div style={{ textAlign: "center" }}>
+            <div
+              onClick={() => setOpen({ type: "losartan", losartanValue: dayValues.losartan })}
+              style={{ cursor: "pointer", textAlign: "center" }}
+            >
               <div className="icon-row">
                 <Pill style={{ width: 24, height: 24, color: dayValues.losartan ? "#16a34a" : "#9ca3af" }} />
               </div>
               <h2 className="card-title">Medication: Losartan 50mg</h2>
               <p className="card-data" style={{ color: dayValues.losartan ? "#16a34a" : "#6b7280" }}>{dayValues.losartan ? "Taken" : "Not taken"}</p>
               <p className="card-updated">Updated {fmtTime(dayValues.losartanUpdatedAt ? new Date(dayValues.losartanUpdatedAt) : null) ?? "—"}</p>
-              <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "losartan", losartanValue: dayValues.losartan })}><Edit style={{ width: 16, height: 16 }} /></Button>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -456,7 +416,7 @@ export default function App() {
               {open.metricNames.map((metricName, idx) => (
                 metricConfig[metricName].kind === "slider" ? (
                   <div key={metricName} style={{ marginBottom: 16 }}>
-                    <Label htmlFor={metricName}>{metricName}</Label>
+                    <Label htmlFor={metricName}>{toSentenceCase(metricName)}</Label>
                     <div>
                       <Slider
                         id={metricName}
@@ -481,7 +441,7 @@ export default function App() {
                   </div>
                 ) : (
                   <div key={metricName} style={{ marginBottom: 12 }}>
-                    <Label htmlFor={metricName}>{metricName}{metricConfig[metricName].uom ? ` (${metricConfig[metricName].uom})` : ""}</Label>
+                    <Label htmlFor={metricName}>{toSentenceCase(metricName)}{metricConfig[metricName].uom ? ` (${metricConfig[metricName].uom})` : ""}</Label>
                     <Input
                       id={metricName}
                       type="number"
