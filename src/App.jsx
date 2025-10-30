@@ -1,10 +1,8 @@
-import React, { useMemo, useState, lazy, Suspense } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, Moon, Brain, Bone, Edit, Pill } from "lucide-react";
 
-// Lazy load the chart modal component
-const ChartModal = lazy(() => import("./components/chart-modal"));
 import {
   Dialog,
   DialogContent,
@@ -16,28 +14,7 @@ import { Input } from "./components/ui/input";
 import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
-import { Switch } from "./components/ui/switch";
-
-// Helper to format a Date as YYYY-MM-DD (key for our records map)
-function toKey(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function fmtTime(d) {
-  if (!d) return null;
-  try {
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } catch {
-    return null;
-  }
-}
-
-function toSentenceCase(str) {
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
+import { toKey, fmtTime, toSentenceCase } from "./utils/helpers";
 
 export default function App() {
 
@@ -52,7 +29,9 @@ export default function App() {
     heart: { kind: "singleValue", uom: "bpm" },
     systolic: { kind: "singleValue", uom: "" },
     diastolic: { kind: "singleValue", uom: "" },
-    glucose: { kind: "singleValue", uom: "mg/dL" }
+    glucose: { kind: "singleValue", uom: "mg/dL" },
+    tylenol: { kind: "switch", uom: "" },
+    losartan: { kind: "switch", uom: "" }
   };
 
   const cardDefinitions = [
@@ -66,7 +45,7 @@ export default function App() {
       cardName: "symptoms",
       title: "Symptoms",
       icon: Activity,
-      metricNames: ["pain", "temperature"]
+      metricNames: ["pain", "temperature", "tylenol"]
     },
     {
       cardName: "heart",
@@ -78,7 +57,7 @@ export default function App() {
       cardName: "blood-pressure",
       title: "Blood Pressure",
       icon: Activity,
-      metricNames: ["systolic", "diastolic"]
+      metricNames: ["systolic", "diastolic", "losartan"]
     },
     {
       cardName: "glucose",
@@ -106,6 +85,20 @@ export default function App() {
       icon: Bone,
       color: "#f59e0b",
       metricNames: ["back"]
+    },
+    {
+      cardName: "tylenol",
+      title: "Tylenol",
+      icon: Pill,
+      color: "#10b981",
+      metricNames: ["tylenol"]
+    },
+    {
+      cardName: "losartan",
+      title: "Losartan",
+      icon: Pill,
+      color: "#10b981",
+      metricNames: ["losartan"]
     },
   ];
 
@@ -317,11 +310,15 @@ export default function App() {
             const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
 
             // Display values separated by '/'
-            const displayValue = metricValues.map(mv =>
-              mv.kind === "slider"
-                ? `${mv.value ?? "—"}`
-                : `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`
-            ).join(" / ");
+            const displayValue = metricValues.map(mv => {
+              if (mv.kind === "slider") {
+                return `${mv.value ?? "—"}`;
+              } else if (mv.kind === "switch") {
+                return mv.value === true ? "Yes" : mv.value === false ? "No" : "—";
+              } else {
+                return `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`;
+              }
+            }).join(" / ");
             // Use the first updatedAt for display
             const updatedAt = metricValues.find(v => v.updatedAt)?.updatedAt;
 
@@ -354,30 +351,6 @@ export default function App() {
             );
           });
         })()}
-
-
-
-
-
-
-
-        {/* Medication: Losartan */}
-        <Card>
-          <CardContent>
-            <div
-              onClick={() => setOpen({ type: "losartan", losartanValue: dayValues.losartan })}
-              style={{ cursor: "pointer", textAlign: "center" }}
-            >
-              <div className="icon-row">
-                <Pill style={{ width: 24, height: 24, color: dayValues.losartan ? "#16a34a" : "#9ca3af" }} />
-              </div>
-              <h2 className="card-title">Medication: Losartan 50mg</h2>
-              <p className="card-data" style={{ color: dayValues.losartan ? "#16a34a" : "#6b7280" }}>{dayValues.losartan ? "Taken" : "Not taken"}</p>
-              <p className="card-updated">Updated {fmtTime(dayValues.losartanUpdatedAt ? new Date(dayValues.losartanUpdatedAt) : null) ?? "—"}</p>
-            </div>
-          </CardContent>
-        </Card>
-
       </div>
 
       {/* Dialogs */}
@@ -413,85 +386,111 @@ export default function App() {
               <DialogTitle>Edit {open.title}</DialogTitle>
             </DialogHeader>
             <div>
-              {open.metricNames.map((metricName, idx) => (
-                metricConfig[metricName].kind === "slider" ? (
-                  <div key={metricName} style={{ marginBottom: 16 }}>
-                    <Label htmlFor={metricName}>{toSentenceCase(metricName)}</Label>
-                    <div>
-                      <Slider
+              {open.metricNames.map((metricName, idx) => {
+                const kind = metricConfig[metricName].kind;
+
+                if (kind === "slider") {
+                  return (
+                    <div key={metricName} style={{ marginBottom: 16 }}>
+                      <Label htmlFor={metricName}>{toSentenceCase(metricName)}</Label>
+                      <div>
+                        <Slider
+                          id={metricName}
+                          value={[open.metricValues?.[idx]?.value ?? 0]}
+                          min={0}
+                          max={10}
+                          step={1}
+                          onValueChange={(v) => {
+                            const updatedValues = [...(open.metricValues ?? [])];
+                            updatedValues[idx] = { ...updatedValues[idx], value: v[0] };
+                            setOpen({ ...open, metricValues: updatedValues });
+                          }}
+                        />
+                        <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                          <span>0 • Good</span>
+                          <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>
+                            {open.metricValues?.[idx]?.value ?? 0}
+                          </span>
+                          <span>10 • Awful</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                } else if (kind === "switch") {
+                  const currentValue = open.metricValues?.[idx]?.value;
+                  return (
+                    <div key={metricName} style={{ marginBottom: 16 }}>
+                      <Label htmlFor={metricName}>{toSentenceCase(metricName)}</Label>
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "flex-start" }}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const updatedValues = [...(open.metricValues ?? [])];
+                            updatedValues[idx] = { ...updatedValues[idx], value: true };
+                            setOpen({ ...open, metricValues: updatedValues });
+                          }}
+                          style={{
+                            padding: "6px 16px",
+                            fontSize: "14px",
+                            height: "auto",
+                            minWidth: "60px",
+                            backgroundColor: currentValue === true ? "#10b981" : "transparent",
+                            color: currentValue === true ? "white" : "inherit",
+                            borderColor: currentValue === true ? "#10b981" : "inherit"
+                          }}
+                        >
+                          Yes
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const updatedValues = [...(open.metricValues ?? [])];
+                            updatedValues[idx] = { ...updatedValues[idx], value: false };
+                            setOpen({ ...open, metricValues: updatedValues });
+                          }}
+                          style={{
+                            padding: "6px 16px",
+                            fontSize: "14px",
+                            height: "auto",
+                            minWidth: "60px",
+                            backgroundColor: currentValue === false ? "#ef4444" : "transparent",
+                            color: currentValue === false ? "white" : "inherit",
+                            borderColor: currentValue === false ? "#ef4444" : "inherit"
+                          }}
+                        >
+                          No
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div key={metricName} style={{ marginBottom: 12 }}>
+                      <Label htmlFor={metricName}>{toSentenceCase(metricName)}{metricConfig[metricName].uom ? ` (${metricConfig[metricName].uom})` : ""}</Label>
+                      <Input
                         id={metricName}
-                        value={[open.metricValues?.[idx]?.value ?? 0]}
-                        min={0}
-                        max={10}
-                        step={1}
-                        onValueChange={(v) => {
+                        type="number"
+                        style={{ width: "auto" }}
+                        value={open.metricValues?.[idx]?.value ?? ""}
+                        onChange={(e) => {
+                          const newValue = e.target.value ? Number(e.target.value) : null;
                           const updatedValues = [...(open.metricValues ?? [])];
-                          updatedValues[idx] = { ...updatedValues[idx], value: v[0] };
+                          updatedValues[idx] = { ...updatedValues[idx], value: newValue };
                           setOpen({ ...open, metricValues: updatedValues });
                         }}
                       />
-                      <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                        <span>0 • Good</span>
-                        <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>
-                          {open.metricValues?.[idx]?.value ?? 0}
-                        </span>
-                        <span>10 • Awful</span>
-                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div key={metricName} style={{ marginBottom: 12 }}>
-                    <Label htmlFor={metricName}>{toSentenceCase(metricName)}{metricConfig[metricName].uom ? ` (${metricConfig[metricName].uom})` : ""}</Label>
-                    <Input
-                      id={metricName}
-                      type="number"
-                      style={{ width: "auto" }}
-                      value={open.metricValues?.[idx]?.value ?? ""}
-                      onChange={(e) => {
-                        const newValue = e.target.value ? Number(e.target.value) : null;
-                        const updatedValues = [...(open.metricValues ?? [])];
-                        updatedValues[idx] = { ...updatedValues[idx], value: newValue };
-                        setOpen({ ...open, metricValues: updatedValues });
-                      }}
-                    />
-                  </div>
-                ))
-              )}
+                  );
+                }
+              })}
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => {
                 open.metricNames.forEach((metricName, idx) => {
                   updateDayValues({ metric: metricName, inputValue: open.metricValues?.[idx]?.value });
-                });
-                setOpen(null);
-              }}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-
-        {/* Losartan Dialog */}
-        {open?.type === "losartan" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Losartan 50mg</DialogTitle>
-            </DialogHeader>
-            <div>
-              <Label htmlFor="losartan">Did you take Losartan today?</Label>
-              <div style={{ marginTop: 16 }}>
-                <Switch
-                  checked={open.losartanValue ?? false}
-                  onCheckedChange={(checked) => setOpen({ ...open, losartanValue: checked })}
-                />
-                <span style={{ marginLeft: 12 }}>{open.losartanValue ? "Yes" : "No"}</span>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => {
-                upsertSelectedDay({
-                  losartan: open.losartanValue,
-                  losartanUpdatedAt: new Date().toISOString()
                 });
                 setOpen(null);
               }}>Save</Button>
