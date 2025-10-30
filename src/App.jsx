@@ -1,7 +1,10 @@
-import React, { useMemo, useState, useEffect, lazy, Suspense } from "react";
+import React, { useMemo, useState, lazy, Suspense } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Activity, Heart, Droplet, Gauge, CalendarDays, ChevronLeft, ChevronRight, Moon, Brain, Bone, Edit, Pill } from "lucide-react";
+
+// Lazy load the chart modal component
+const ChartModal = lazy(() => import("./components/chart-modal"));
 import {
   Dialog,
   DialogContent,
@@ -33,77 +36,73 @@ function fmtTime(d) {
 }
 
 export default function App() {
+
   // --- Static metric definitions -----------------------------------------------
+  const metricConfig = {
+    weight: { kind: "singleValue", uom: "lbs" },
+    pain: { kind: "slider", uom: "" },
+    back: { kind: "slider", uom: "" },
+    headache: { kind: "slider", uom: "" },
+    tired: { kind: "slider", uom: "" },
+    temperature: { kind: "singleValue", uom: "°F" },
+    heart: { kind: "singleValue", uom: "bpm" },
+    systolic: { kind: "singleValue", uom: "" },
+    diastolic: { kind: "singleValue", uom: "" },
+    glucose: { kind: "singleValue", uom: "mg/dL" }
+  };
+
   const cardDefinitions = [
     {
-      metricNames: ["weight"],
       cardName: "weight",
       title: "Weight",
-      uom: "lbs",
       icon: Activity,
-      kind: "singleValue"
+      metricNames: ["weight"]
     },
     {
-      metricNames: ["heart"],
+      cardName: "symptoms",
+      title: "Symptoms",
+      icon: Activity,
+      metricNames: ["pain", "temperature"]
+    },
+    {
       cardName: "heart",
       title: "Heart Rate",
-      uom: "bpm",
       icon: Heart,
-      kind: "singleValue"
+      metricNames: ["heart"]
     },
     {
-      metricNames: ["systolic", "diastolic"],
       cardName: "blood-pressure",
       title: "Blood Pressure",
-      uom: "",
       icon: Activity,
-      kind: "singleValue"
+      metricNames: ["systolic", "diastolic"]
     },
     {
-      metricNames: ["glucose"],
       cardName: "glucose",
       title: "Glucose",
-      uom: "mg/dL",
       icon: Droplet,
-      kind: "singleValue"
+      metricNames: ["glucose"]
     },
     {
-      metricNames: ["tired"],
       cardName: "tired",
       title: "Tired",
-      uom: "/10",
       icon: Moon,
       color: "#4f46e5",
-      kind: "slider"
+      metricNames: ["tired"]
     },
     {
-      metricNames: ["headache"],
       cardName: "headache",
       title: "Headache",
-      uom: "/10",
       icon: Brain,
       color: "#7c3aed",
-      kind: "slider"
+      metricNames: ["headache"]
     },
     {
-      metricNames: ["back"],
       cardName: "back",
       title: "Back Ache",
-      uom: "/10",
       icon: Bone,
       color: "#f59e0b",
-      kind: "slider"
+      metricNames: ["back"]
     },
-    // Example multi-metric card:
-    // {
-    //   metricNames: ["tired", "headache", "back"],
-    //   cardName: "symptoms",
-    //   title: "Symptoms",
-    //   uom: "/10",
-    //   icon: Moon,
-    //   color: "#4f46e5",
-    //   kind: "slider"
-    // },
   ];
 
   // --- Per-day records store -------------------------------------------------
@@ -195,26 +194,10 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate]);
 
-  // Extract values for the selected day (fallback to nulls)
-  const [dayValues, setDayValues] = useState(records[selectedKey] ?? {
-    weight: null,
-    weightUpdatedAt: null,
-    glucose: null,
-    glucoseUpdatedAt: null,
-    heartRate: null,
-    heartUpdatedAt: null,
-    bpSystolic: null,
-    bpDiastolic: null,
-    bpUpdatedAt: null,
-    tired: null,
-    tiredUpdatedAt: null,
-    headache: null,
-    headacheUpdatedAt: null,
-    backAche: null,
-    backAcheUpdatedAt: null,
-  });
+  // Get day values directly from records
+  const dayValues = useMemo(() => records[selectedKey] ?? {}, [records, selectedKey]);
 
-  // Local state mirrors for inputs (so dialogs edit the selected day)
+  // Update metric values in the records
   const updateDayValues = (newData) => {
     setRecords((prev) => {
       const dp = prev.dataPoints[newData.metric];
@@ -233,47 +216,6 @@ export default function App() {
       };
     });
   };
-
-  const [inputValue, setInputValue] = useState(null);
-  const [weight, setWeight] = useState(dayValues.weight);
-  const [glucose, setGlucose] = useState(dayValues.glucose);
-  const [heartRate, setHeartRate] = useState(dayValues.heartRate);
-  const [bpSystolic, setBpSystolic] = useState(dayValues.bpSystolic);
-  const [bpDiastolic, setBpDiastolic] = useState(dayValues.bpDiastolic);
-  const [tired, setTired] = useState(dayValues.tired);
-  const [headache, setHeadache] = useState(dayValues.headache);
-  const [backAche, setBackAche] = useState(dayValues.backAche);
-  const [losartan, setLosartan] = useState(dayValues.losartan);
-
-  // Sync local card values whenever the selected date changes
-  useEffect(() => {
-    const v = records[selectedKey] ?? {
-      weight: null,
-      weightUpdatedAt: null,
-      glucose: null,
-      glucoseUpdatedAt: null,
-      heartRate: null,
-      heartUpdatedAt: null,
-      bpSystolic: null,
-      bpDiastolic: null,
-      bpUpdatedAt: null,
-      tired: null,
-      tiredUpdatedAt: null,
-      headache: null,
-      headacheUpdatedAt: null,
-      backAche: null,
-      backAcheUpdatedAt: null,
-    };
-    setWeight(v.weight);
-    setGlucose(v.glucose);
-    setHeartRate(v.heartRate);
-    setBpSystolic(v.bpSystolic);
-    setBpDiastolic(v.bpDiastolic);
-    setTired(v.tired);
-    setHeadache(v.headache);
-    setBackAche(v.backAche);
-    setLosartan(v.losartan);
-  }, [records, selectedKey]);
 
   // --- Dialog state ----------------------------------------------------------
   const [open, setOpen] = useState(null);
@@ -396,21 +338,22 @@ export default function App() {
           return cardDefinitions.map((meta) => {
             // Gather values for all metrics in this card
             const metricValues = meta.metricNames.map(metricName => {
+              const config = metricConfig[metricName];
               const data = points[metricName] ?? {};
               const fallbackValue = records[selectedKey]?.[metricName] ?? null;
               const fallbackUpdated = records[selectedKey]?.[`${metricName}UpdatedAt`] ?? null;
               const dp = (data.dayValue && data.dayValue[selectedKey]) ?? { value: fallbackValue, updatedAt: fallbackUpdated };
-              return { value: dp.value, updatedAt: dp.updatedAt };
+              return { metric: metricName, ...config, value: dp.value, updatedAt: dp.updatedAt };
             });
-            const hasValue = metricValues.some(v => v.value !== null && v.value !== undefined);
+            const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
             const Icon = meta.icon ?? Activity;
-            const color = meta.color ?? (meta.kind === "slider" ? "#4f46e5" : "#16a34a");
+            const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
 
             // Display values separated by '/'
-            const displayValue = metricValues.map((v, idx) =>
-              meta.kind === "slider"
-                ? `${v.value ?? "—"}`
-                : `${v.value ?? "—"} ${meta.uom ?? ""}`
+            const displayValue = metricValues.map(mv =>
+              mv.kind === "slider"
+                ? `${mv.value ?? "—"}/10`
+                : `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`
             ).join(" / ");
             // Use the first updatedAt for display
             const updatedAt = metricValues.find(v => v.updatedAt)?.updatedAt;
@@ -429,8 +372,11 @@ export default function App() {
                         <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
                         <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
                           <Button variant="secondary" className="btn-icon" onClick={() => {
-                            setInputValue(metricValues[0].value); // Only sets first metric for now
-                            setOpen({ type: meta.cardName, ...meta, metricValues });
+                            setOpen({
+                              type: meta.cardName,
+                              ...meta,
+                              metricValues
+                            });
                           }}>
                             <Edit style={{ width: 16, height: 16 }} />
                           </Button>
@@ -460,13 +406,13 @@ export default function App() {
           <CardContent>
             <div style={{ textAlign: "center" }}>
               <div className="icon-row">
-                <Pill style={{ width: 24, height: 24, color: losartan ? "#16a34a" : "#9ca3af" }} />
+                <Pill style={{ width: 24, height: 24, color: dayValues.losartan ? "#16a34a" : "#9ca3af" }} />
               </div>
               <h2 className="card-title">Medication: Losartan 50mg</h2>
-              <p className="card-data" style={{ color: losartan ? "#16a34a" : "#6b7280" }}>{losartan ? "Taken" : "Not taken"}</p>
+              <p className="card-data" style={{ color: dayValues.losartan ? "#16a34a" : "#6b7280" }}>{dayValues.losartan ? "Taken" : "Not taken"}</p>
               <p className="card-updated">Updated {fmtTime(dayValues.losartanUpdatedAt ? new Date(dayValues.losartanUpdatedAt) : null) ?? "—"}</p>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", paddingTop: 8 }}>
-                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "losartan" })}><Edit style={{ width: 16, height: 16 }} /></Button>
+                <Button variant="secondary" className="btn-icon" onClick={() => setOpen({ type: "losartan", losartanValue: dayValues.losartan })}><Edit style={{ width: 16, height: 16 }} /></Button>
               </div>
             </div>
           </CardContent>
@@ -500,19 +446,42 @@ export default function App() {
           </DialogContent>
         )}
 
-        {/* Chart modal (lazy-loaded) */}
-
-        {/* Single Values */}
-        {open?.kind === "singleValue" && (
+        {/* Single Value Metrics */}
+        {open?.metricNames && (
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Edit {open.title}</DialogTitle>
             </DialogHeader>
             <div>
-              {open.metricNames.length > 1 ? (
-                open.metricNames.map((metricName, idx) => (
+              {open.metricNames.map((metricName, idx) => (
+                metricConfig[metricName].kind === "slider" ? (
+                  <div key={metricName} style={{ marginBottom: 16 }}>
+                    <Label htmlFor={metricName}>{metricName}</Label>
+                    <div>
+                      <Slider
+                        id={metricName}
+                        value={[open.metricValues?.[idx]?.value ?? 0]}
+                        min={0}
+                        max={10}
+                        step={1}
+                        onValueChange={(v) => {
+                          const updatedValues = [...(open.metricValues ?? [])];
+                          updatedValues[idx] = { ...updatedValues[idx], value: v[0] };
+                          setOpen({ ...open, metricValues: updatedValues });
+                        }}
+                      />
+                      <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
+                        <span>0 • Good</span>
+                        <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>
+                          {open.metricValues?.[idx]?.value ?? 0}
+                        </span>
+                        <span>10 • Awful</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                   <div key={metricName} style={{ marginBottom: 12 }}>
-                    <Label htmlFor={metricName}>{metricName}{open.uom ? ` (${open.uom})` : ""}</Label>
+                    <Label htmlFor={metricName}>{metricName}{metricConfig[metricName].uom ? ` (${metricConfig[metricName].uom})` : ""}</Label>
                     <Input
                       id={metricName}
                       type="number"
@@ -527,20 +496,6 @@ export default function App() {
                     />
                   </div>
                 ))
-              ) : (
-                <>
-                  <Label htmlFor={open.metricNames[0]}>{open.title} ({open.uom})</Label>
-                  <Input
-                    id={open.metricNames[0]}
-                    type="number"
-                    style={{ width: "auto" }}
-                    value={open.metricValues?.[0]?.value ?? ""}
-                    onChange={(e) => {
-                      const newValue = e.target.value ? Number(e.target.value) : null;
-                      setOpen({ ...open, metricValues: [{ ...open.metricValues?.[0], value: newValue }] });
-                    }}
-                  />
-                </>
               )}
             </div>
             <DialogFooter>
@@ -555,65 +510,6 @@ export default function App() {
           </DialogContent>
         )}
 
-        {/* Blood Pressure */}
-        {open?.type === "bp" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{bpSystolic === null || bpDiastolic === null ? "Add" : "Edit"} Blood Pressure</DialogTitle>
-            </DialogHeader>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 8 }}>
-              <div>
-                <Label htmlFor="sys">Systolic</Label>
-                <Input id="sys" type="number" value={bpSystolic ?? ""} onChange={(e) => setBpSystolic(e.target.value ? Number(e.target.value) : null)} />
-              </div>
-              <div>
-                <Label htmlFor="dia">Diastolic</Label>
-                <Input id="dia" type="number" value={bpDiastolic ?? ""} onChange={(e) => setBpDiastolic(e.target.value ? Number(e.target.value) : null)} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { upsertSelectedDay({ bpSystolic, bpDiastolic, bpUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-
-        {/* 1-10 scale metrics (tired, headache, back) */}
-        {open?.kind === "slider" && (
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit {open.title}</DialogTitle>
-            </DialogHeader>
-            <div style={{ paddingTop: 8 }}>
-              <Label htmlFor={open.type}>{open.title}</Label>
-              <div>
-                <Slider
-                  id={open.type}
-                  value={[inputValue ?? 0]}
-                  min={0}
-                  max={10}
-                  step={1}
-                  onValueChange={(v) => setInputValue(v[0])}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      updateDayValues({ metric: open.type, inputValue });
-                      setOpen(null);
-                    }
-                  }}
-                />
-                <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                  <span>0 • Good</span>
-                  <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>{inputValue ?? 0}</span>
-                  <span>10 • Awful</span>
-                </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { updateDayValues({ metric: open.type, inputValue }); setOpen(null); }}>Save</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
         {/* Losartan Dialog */}
         {open?.type === "losartan" && (
           <DialogContent>
@@ -623,13 +519,22 @@ export default function App() {
             <div>
               <Label htmlFor="losartan">Did you take Losartan today?</Label>
               <div style={{ marginTop: 16 }}>
-                <Switch checked={losartan ?? false} onCheckedChange={setLosartan} />
-                <span style={{ marginLeft: 12 }}>{losartan ? "Yes" : "No"}</span>
+                <Switch
+                  checked={open.losartanValue ?? false}
+                  onCheckedChange={(checked) => setOpen({ ...open, losartanValue: checked })}
+                />
+                <span style={{ marginLeft: 12 }}>{open.losartanValue ? "Yes" : "No"}</span>
               </div>
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => { upsertSelectedDay({ losartan, losartanUpdatedAt: new Date().toISOString() }); setOpen(null); }}>Save</Button>
+              <Button onClick={() => {
+                upsertSelectedDay({
+                  losartan: open.losartanValue,
+                  losartanUpdatedAt: new Date().toISOString()
+                });
+                setOpen(null);
+              }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
