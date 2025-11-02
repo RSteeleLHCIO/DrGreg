@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link } from "lucide-react";
 
 import {
   Dialog,
@@ -14,7 +14,7 @@ import { Input } from "./components/ui/input";
 import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
-import { toKey, fmtTime, toSentenceCase } from "./utils/helpers";
+import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
 
 export default function App() {
 
@@ -41,18 +41,18 @@ export default function App() {
   });
 
   const metricConfig = {
-    weight: { kind: "singleValue", uom: "lbs" },
-    pain: { kind: "slider", uom: "", prompt: "How bad is your pain today?" },
-    back: { kind: "slider", uom: "", prompt: "How bad is your back pain today?" },
-    headache: { kind: "slider", uom: "", prompt: "How bad is your headache today?" },
-    tired: { kind: "slider", uom: "", prompt: "How tired do you feel today?" },
-    temperature: { kind: "singleValue", uom: "°F" },
-    heart: { kind: "singleValue", uom: "bpm", prompt: "What is your Heart Rate (beats per minute)?" },
-    systolic: { kind: "singleValue", uom: "" },
-    diastolic: { kind: "singleValue", uom: "" },
-    glucose: { kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
-    tylenol: { kind: "switch", uom: "", prompt: "Did you take Tylenol within the last 4 hours?" },
-    losartan: { kind: "switch", uom: "", prompt: "Did you take Losartan today?" }
+    weight: { title: "Weight", kind: "singleValue", uom: "lbs" },
+    pain: { title: "Pain", kind: "slider", uom: "", prompt: "How bad is your pain today?" },
+    back: { title: "Back Pain", kind: "slider", uom: "", prompt: "How bad is your back pain today?" },
+    headache: { title: "Headache", kind: "slider", uom: "", prompt: "How bad is your headache today?" },
+    tired: { title: "Tiredness", kind: "slider", uom: "", prompt: "How tired do you feel today?" },
+    temperature: { title: "Temperature", kind: "singleValue", uom: "°F" },
+    heart: { title: "Heart Rate", kind: "singleValue", uom: "bpm", prompt: "What is your Heart Rate (beats per minute)?" },
+    systolic: { title: "BP - Systolic", kind: "singleValue", uom: "" },
+    diastolic: { title: "BP - Diastolic", kind: "singleValue", uom: "" },
+    glucose: { title: "Blood Glucose", kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
+    tylenol: { title: "Rx - Tylenol", kind: "switch", uom: "", prompt: "Did you take Tylenol within the last 4 hours?" },
+    losartan: { title: "Rx - Losartan", kind: "switch", uom: "", prompt: "Did you take Losartan today?" }
   };
 
   /* --- Card definitions and active Cards ---
@@ -223,6 +223,10 @@ export default function App() {
   // --- Selected day ----------------------------------------------------------
   const [selectedDate, setSelectedDate] = useState(new Date());
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate]);
+  const [showCalendarPopup, setShowCalendarPopup] = useState(false);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const calendarButtonRef = useRef(null);
+  const settingsButtonRef = useRef(null);
 
   // Update metric values in the records (timestamped entries)
   // newData: { metric, inputValue, ts, editTs, source }
@@ -285,6 +289,14 @@ export default function App() {
     } catch { }
     return { paidVersion: false };
   });
+
+  // --- View mode ------------------------------------------------------------
+  // 'day' = show all cards for selected date
+  // 'metric-history' = show all entries for a specific metric across dates
+  // 'latest' = show all cards with their most recent data regardless of date
+  const [viewMode, setViewMode] = useState('day');
+  const defaultHistoryMetric = 'weight';
+  const [historyMetric, setHistoryMetric] = useState(defaultHistoryMetric);
 
   // date navigation helpers
   function prevDay() {
@@ -372,24 +384,68 @@ export default function App() {
         {/* Right: actions */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", justifySelf: "end" }}>
           {/* icon-only date picker (restored to header right) */}
-          <Button variant="outline" className="btn-icon" aria-label="Select date" onClick={() => setOpen({ type: "date" })}>
+          <Button
+            variant="outline"
+            className={`btn-icon btn-mode ${viewMode === 'day' ? 'btn-mode-active' : ''}`}
+            aria-label="Day view"
+            title="Day view"
+            onClick={() => setViewMode('day')}
+          >
             <CalendarDays />
           </Button>
-          {/* customize dashboard */}
+          {/* date pill shown in day mode */}
+          {viewMode === 'day' && (
+            <button
+              ref={calendarButtonRef}
+              className="date-pill"
+              aria-label="Change date"
+              onClick={() => setShowCalendarPopup(!showCalendarPopup)}
+            >
+              {selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+            </button>
+          )}
+          {/* history view */}
           <Button
             variant="outline"
-            className="btn-icon"
-            aria-label="Customize dashboard"
-            onClick={() => setOpen({ type: "configure", tempActive: [...activeCards], tempFlags: { ...featureFlags } })}
+            className={`btn-icon btn-mode ${viewMode === 'metric-history' ? 'btn-mode-active' : ''}`}
+            aria-label="History view"
+            title="History view"
+            onClick={() => setViewMode('metric-history')}
           >
-            <SlidersHorizontal />
+            <History />
           </Button>
-          {/* settings (user information) */}
+          {/* selectors next to active modes */}
+          {viewMode === 'metric-history' && (
+            <select
+              className="mode-select"
+              aria-label="Choose metric"
+              value={historyMetric}
+              onChange={(e) => setHistoryMetric(e.target.value)}
+            >
+              {Object.keys(metricConfig).map((m) => (
+                <option key={m} value={m}>{metricConfig[m].title || toSentenceCase(m)}</option>
+              ))}
+            </select>
+          )}
+          {/* latest view */}
           <Button
             variant="outline"
+            className={`btn-icon btn-mode ${viewMode === 'latest' ? 'btn-mode-active' : ''}`}
+            aria-label="Latest view"
+            title="Latest view"
+            onClick={() => setViewMode('latest')}
+          >
+            <Clock />
+          </Button>
+          {/* vertical separator between mode buttons and settings */}
+          <div className="actions-sep" />
+          {/* settings menu button */}
+          <Button
+            ref={settingsButtonRef}
+            variant="outline"
             className="btn-icon"
-            aria-label="Settings"
-            onClick={() => setOpen({ type: "settings", tempUser: { ...user } })}
+            aria-label="Settings menu"
+            onClick={() => setShowSettingsMenu(!showSettingsMenu)}
           >
             <Settings />
           </Button>
@@ -397,254 +453,473 @@ export default function App() {
         </div>
       </div>
 
-      {/* Viewing selected day label below header and above cards */}
-      <div style={{ textAlign: 'center', fontSize: 22, fontWeight: 600, margin: '4px 0 32px' }}>
-        Viewing {niceDate}
+      {/* Settings menu popup */}
+      {showSettingsMenu && (
+        <>
+          <div
+            className="calendar-popup-overlay"
+            onClick={() => setShowSettingsMenu(false)}
+          />
+          <div className="settings-menu-popup">
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "profile", tempUser: { ...user } });
+              }}
+            >
+              <User size={18} />
+              <span>Profile</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "services", tempUser: { ...user } });
+              }}
+            >
+              <Link size={18} />
+              <span>Connected Services</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "configure", tempActive: [...activeCards], tempFlags: { ...featureFlags } });
+              }}
+            >
+              <SlidersHorizontal size={18} />
+              <span>Customize Dashboard</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "import" });
+              }}
+            >
+              <Upload size={18} />
+              <span>Import Data</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "export" });
+              }}
+            >
+              <Download size={18} />
+              <span>Export Data</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Calendar popup */}
+      {showCalendarPopup && viewMode === 'day' && (
+        <>
+          <div
+            className="calendar-popup-overlay"
+            onClick={() => setShowCalendarPopup(false)}
+          />
+          <div className="calendar-popup">
+            <Calendar
+              mode="single"
+              selected={selectedDate}
+              onSelect={(d) => {
+                if (d) {
+                  setSelectedDate(d);
+                  setShowCalendarPopup(false);
+                }
+              }}
+              disabled={(date) => date > today}
+              initialFocus
+            />
+          </div>
+        </>
+      )}
+
+      {/* Centered header label */}
+      <div style={{ textAlign: 'center', fontSize: 22, fontWeight: 600, margin: '24px 0 20px' }}>
+        {viewMode === 'day' && (
+          <span>Data for {niceDate}</span>
+        )}
+        {viewMode === 'metric-history' && (
+          <span>History: {metricConfig[historyMetric]?.title || toSentenceCase(historyMetric)}</span>
+        )}
+        {viewMode === 'latest' && (
+          <span>Most recent entries</span>
+        )}
       </div>
 
-      {/* Cards grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 320px))", gap: 12, justifyContent: "center" }}>
-        {(() => {
-          const points = records.dataPoints ?? {};
-          // Render only active cards, in the chosen order
-          return activeCards
-            .map((name) => cardDefinitions.find((c) => c.cardName === name))
-            .filter(Boolean)
-            .map((meta) => {
-              // Gather values for all metrics in this card
-              const metricValues = meta.metricNames.map(metricName => {
-                const config = metricConfig[metricName];
-                const data = points[metricName] ?? {};
-                const fallbackValue = records[selectedKey]?.[metricName] ?? null;
-                const fallbackUpdated = records[selectedKey]?.[`${metricName}UpdatedAt`] ?? null;
-                // Look for the most recent entry for the selected day
-                const entries = Array.isArray(data.entries) ? data.entries : [];
-                const dayStart = new Date(selectedDate);
-                dayStart.setHours(0, 0, 0, 0);
-                const startMs = dayStart.getTime();
-                const endMs = startMs + 24 * 60 * 60 * 1000;
-                let lastEntry = null;
-                let entryCount = 0;
-                for (let i = entries.length - 1; i >= 0; i--) {
-                  const e = entries[i];
-                  if (e.ts >= startMs && e.ts < endMs) {
-                    if (!lastEntry) lastEntry = e;
-                    entryCount++;
-                  }
-                }
-                // Fallback to legacy dayValue by scanning timestamp-based keys (and date-only keys)
-                let dvValue = null;
-                let dvUpdated = null;
-                if (!lastEntry && data.dayValue) {
-                  const keys = Object.keys(data.dayValue);
-                  // Scan keys newest-first if possible by sorting
-                  keys.sort((a, b) => {
-                    const pa = Date.parse(a) || Number(a) || 0;
-                    const pb = Date.parse(b) || Number(b) || 0;
-                    return pa - pb;
-                  });
-                  for (let i = keys.length - 1; i >= 0; i--) {
-                    const k = keys[i];
-                    let tsK = Number(k);
-                    if (!Number.isFinite(tsK)) {
-                      const parsed = Date.parse(k.length === 10 ? `${k}T00:00:00` : k);
-                      tsK = Number.isFinite(parsed) ? parsed : 0;
+      {/* Main content */}
+      {viewMode !== 'metric-history' ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 320px))", gap: 12, justifyContent: "center" }}>
+          {(() => {
+            const points = records.dataPoints ?? {};
+            // Render only active cards, in the chosen order
+            return activeCards
+              .map((name) => cardDefinitions.find((c) => c.cardName === name))
+              .filter(Boolean)
+              .map((meta) => {
+                // Gather values for all metrics in this card
+                const metricValues = meta.metricNames.map(metricName => {
+                  const config = metricConfig[metricName];
+                  const data = points[metricName] ?? {};
+                  const fallbackValue = records[selectedKey]?.[metricName] ?? null;
+                  const fallbackUpdated = records[selectedKey]?.[`${metricName}UpdatedAt`] ?? null;
+                  // Determine the relevant entry based on view mode
+                  const entries = Array.isArray(data.entries) ? data.entries : [];
+                  let lastEntry = null;
+                  let entryCount = 0;
+                  if (viewMode === 'day') {
+                    const dayStart = new Date(selectedDate);
+                    dayStart.setHours(0, 0, 0, 0);
+                    const startMs = dayStart.getTime();
+                    const endMs = startMs + 24 * 60 * 60 * 1000;
+                    for (let i = entries.length - 1; i >= 0; i--) {
+                      const e = entries[i];
+                      if (e.ts >= startMs && e.ts < endMs) {
+                        if (!lastEntry) lastEntry = e;
+                        entryCount++;
+                      }
                     }
-                    if (tsK >= startMs && tsK < endMs) {
-                      const rec = data.dayValue[k];
-                      dvValue = rec?.value ?? null;
-                      dvUpdated = rec?.updatedAt ?? null;
-                      break;
+                    // Fallback to legacy dayValue by scanning timestamp-based keys (and date-only keys)
+                    let dvValue = null;
+                    let dvUpdated = null;
+                    if (!lastEntry && data.dayValue) {
+                      const keys = Object.keys(data.dayValue);
+                      // Scan keys newest-first if possible by sorting
+                      keys.sort((a, b) => {
+                        const pa = Date.parse(a) || Number(a) || 0;
+                        const pb = Date.parse(b) || Number(b) || 0;
+                        return pa - pb;
+                      });
+                      for (let i = keys.length - 1; i >= 0; i--) {
+                        const k = keys[i];
+                        let tsK = Number(k);
+                        if (!Number.isFinite(tsK)) {
+                          const parsed = Date.parse(k.length === 10 ? `${k}T00:00:00` : k);
+                          tsK = Number.isFinite(parsed) ? parsed : 0;
+                        }
+                        if (tsK >= startMs && tsK < endMs) {
+                          const rec = data.dayValue[k];
+                          dvValue = rec?.value ?? null;
+                          dvUpdated = rec?.updatedAt ?? null;
+                          lastEntry = tsK ? { ts: tsK, value: dvValue, updatedAt: dvUpdated, source: rec?.source } : null;
+                          break;
+                        }
+                      }
                     }
+                  } else {
+                    // latest mode: use the most recent entry overall
+                    if (entries.length > 0) {
+                      lastEntry = entries[entries.length - 1];
+                    } else if (data.dayValue) {
+                      // Fallback to legacy map: pick the latest key
+                      const keys = Object.keys(data.dayValue);
+                      keys.sort((a, b) => {
+                        const pa = Date.parse(a) || Number(a) || 0;
+                        const pb = Date.parse(b) || Number(b) || 0;
+                        return pa - pb;
+                      });
+                      const k = keys[keys.length - 1];
+                      if (k) {
+                        const rec = data.dayValue[k];
+                        const tsK = Number(k) || Date.parse(k.length === 10 ? `${k}T00:00:00` : k);
+                        lastEntry = { ts: tsK, value: rec?.value ?? null, updatedAt: rec?.updatedAt, source: rec?.source };
+                      }
+                    }
+                    // In latest mode, count total entries
+                    entryCount = entries.length;
                   }
-                }
-                const value = lastEntry ? lastEntry.value : (dvValue ?? fallbackValue);
-                const timestamp = lastEntry ? lastEntry.ts : null;
-                const source = lastEntry ? lastEntry.source : null;
-                const updatedAt = lastEntry ? (lastEntry.updatedAt ?? new Date().toISOString()) : (dvUpdated ?? fallbackUpdated);
-                return { metric: metricName, ...config, value, timestamp, source, updatedAt, entryCount };
+                  const value = lastEntry ? lastEntry.value : (viewMode === 'day' ? fallbackValue : null);
+                  const timestamp = lastEntry ? lastEntry.ts : null;
+                  const source = lastEntry ? lastEntry.source : null;
+                  const updatedAt = lastEntry ? (lastEntry.updatedAt ?? new Date().toISOString()) : (viewMode === 'day' ? fallbackUpdated : null);
+                  return { metric: metricName, ...config, value, timestamp, source, updatedAt, entryCount };
+                });
+                const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
+                const Icon = meta.icon ?? Activity;
+                const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
+
+                // Use the first timestamp for display; count total entries for badge
+                const displayTimestamp = metricValues.find(v => v.timestamp)?.timestamp;
+                const totalEntries = metricValues.reduce((sum, mv) => sum + (mv.entryCount || 0), 0);
+
+                // Collect unique sources (excluding "manual entry")
+                const sources = [...new Set(metricValues.map(mv => mv.source).filter(s => s && s !== "manual entry"))];
+
+                return (
+                  <Card key={meta.cardName}>
+                    <CardContent>
+                      <div
+                        onClick={() => {
+                          const toIsoDate = (d) => {
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            return `${yyyy}-${mm}-${dd}`;
+                          };
+                          const now = new Date();
+                          const isToday = toKey(selectedDate) === toKey(new Date());
+                          const defaultTime = isToday
+                            ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                            : '09:00';
+                          // Default dialog state
+                          const baseOpen = {
+                            type: meta.cardName,
+                            ...meta,
+                            metricValues,
+                            tempEntryDate: toIsoDate(selectedDate),
+                            tempEntryTime: defaultTime,
+                          };
+                          // Special handling for single-metric cards when exactly one entry exists on this day
+                          if ((meta.metricNames?.length ?? 0) === 1) {
+                            const metricName = meta.metricNames[0];
+                            const data = (records.dataPoints ?? {})[metricName] ?? {};
+                            const entries = Array.isArray(data.entries) ? data.entries : [];
+                            const dayStart = new Date(selectedDate);
+                            dayStart.setHours(0, 0, 0, 0);
+                            const startMs = dayStart.getTime();
+                            const endMs = startMs + 24 * 60 * 60 * 1000;
+                            const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
+                            if (dayEntries.length === 1) {
+                              // ONE entry: prefill for editing
+                              const e = dayEntries[0];
+                              const dt = new Date(e.ts);
+                              const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                              const mv = [{ ...metricValues[0], value: e.value }];
+                              setOpen({
+                                ...baseOpen,
+                                metricValues: mv,
+                                tempEntryDate: toIsoDate(dt),
+                                tempEntryTime: timeStr,
+                                editEntryTs: e.ts,
+                                entryAction: 'update', // or 'add'
+                              });
+                              return;
+                            } else if (dayEntries.length > 1) {
+                              // MULTIPLE entries: show list view
+                              setOpen({
+                                ...baseOpen,
+                                showEntryList: true,
+                              });
+                              return;
+                            }
+                          }
+
+                          // Multi-metric card handling
+                          if ((meta.metricNames?.length ?? 0) > 1) {
+                            const dayStart = new Date(selectedDate);
+                            dayStart.setHours(0, 0, 0, 0);
+                            const startMs = dayStart.getTime();
+                            const endMs = startMs + 24 * 60 * 60 * 1000;
+
+                            // Gather most recent entries for each metric on this day
+                            const metricEntries = meta.metricNames.map(metricName => {
+                              const data = (records.dataPoints ?? {})[metricName] ?? {};
+                              const entries = Array.isArray(data.entries) ? data.entries : [];
+                              const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
+                              const lastEntry = dayEntries.length > 0 ? dayEntries[dayEntries.length - 1] : null;
+                              return { metricName, lastEntry };
+                            });
+
+                            // Check if all have entries and all share the same timestamp
+                            const allHaveEntries = metricEntries.every(me => me.lastEntry !== null);
+                            const timestamps = metricEntries.filter(me => me.lastEntry).map(me => me.lastEntry.ts);
+                            const allSameTimestamp = timestamps.length > 0 && timestamps.every(ts => ts === timestamps[0]);
+
+                            if (allHaveEntries && allSameTimestamp) {
+                              // All metrics have same timestamp: UPDATE mode
+                              const sharedTs = timestamps[0];
+                              const dt = new Date(sharedTs);
+                              const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                              const mv = metricEntries.map((me, idx) => ({
+                                ...metricValues[idx],
+                                value: me.lastEntry.value
+                              }));
+                              setOpen({
+                                ...baseOpen,
+                                metricValues: mv,
+                                tempEntryDate: toIsoDate(dt),
+                                tempEntryTime: timeStr,
+                                editEntryTs: sharedTs,
+                                entryAction: 'update',
+                                isMultiMetricGrouped: true,
+                              });
+                              return;
+                            } else if (timestamps.length > 0) {
+                              // Different timestamps or some missing: show summary and ADD mode
+                              setOpen({
+                                ...baseOpen,
+                                showMultiMetricSummary: true,
+                                multiMetricEntries: metricEntries,
+                              });
+                              return;
+                            }
+                          }
+
+                          setOpen(baseOpen);
+                        }}
+                        style={{ cursor: "pointer", textAlign: "center" }}
+                      >
+                        <div className="icon-row">
+                          <Icon style={{ width: 24, height: 24, color: hasValue ? color : "#9ca3af" }} />
+                        </div>
+                        <h2 className="card-title">{meta.title}</h2>
+                        {hasValue ? (
+                          <>
+                            <div className="card-data" style={{ color }}>
+                              {metricValues.map((mv, idx) => {
+                                let displayValue;
+                                if (mv.kind === "slider") {
+                                  displayValue = `${mv.value ?? "—"}`;
+                                } else if (mv.kind === "switch") {
+                                  displayValue = mv.value === true ? "Yes" : mv.value === false ? "No" : "—";
+                                } else {
+                                  displayValue = `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`;
+                                }
+                                return (
+                                  <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    {metricValues.length > 1 ? (
+                                      <>
+                                        <span style={{ fontSize: "0.75em", fontWeight: "normal", marginRight: 4 }}>
+                                          {toSentenceCase(mv.metric)}:{" "}
+                                        </span>
+                                        {displayValue}
+                                      </>
+                                    ) : (
+                                      displayValue
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <p className="card-updated">
+                              {displayTimestamp ? (viewMode === 'latest' ? fmtDateTime(new Date(displayTimestamp)) : fmtTime(new Date(displayTimestamp))) : "—"}
+                              {totalEntries > 1 && viewMode !== 'latest' && (meta.metricNames?.length === 1) && (
+                                <span style={{ marginLeft: 8, fontSize: '0.85em', color: '#9ca3af' }}>
+                                  ({totalEntries} entries)
+                                </span>
+                              )}
+                            </p>
+                            {sources.length > 0 && (
+                              <p style={{ fontSize: '0.75em', color: '#9ca3af', marginTop: 2 }}>
+                                {sources.join(', ')}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="card-updated">No data yet</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
               });
-              const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
-              const Icon = meta.icon ?? Activity;
-              const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
-
-              // Use the first timestamp for display; count total entries for badge
-              const displayTimestamp = metricValues.find(v => v.timestamp)?.timestamp;
-              const totalEntries = metricValues.reduce((sum, mv) => sum + (mv.entryCount || 0), 0);
-
-              // Collect unique sources (excluding "manual entry")
-              const sources = [...new Set(metricValues.map(mv => mv.source).filter(s => s && s !== "manual entry"))];
-
+          })()}
+        </div>
+      ) : (
+        // Metric history view
+        <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 8px' }}>
+          {(() => {
+            const cfg = metricConfig[historyMetric] || { kind: 'singleValue', uom: '' };
+            const dp = (records.dataPoints ?? {})[historyMetric] ?? {};
+            const entries = Array.isArray(dp.entries) ? [...dp.entries] : [];
+            entries.sort((a, b) => b.ts - a.ts);
+            const formatValue = (v) => {
+              if (cfg.kind === 'slider') return String(v);
+              if (cfg.kind === 'switch') return v === true ? 'Yes' : v === false ? 'No' : '—';
+              return `${v ?? '—'}${cfg.uom ? ` ${cfg.uom}` : ''}`;
+            };
+            if (entries.length === 0) {
+              const toIsoDate = (d) => {
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+              };
+              const now = new Date();
+              const isToday = toKey(selectedDate) === toKey(new Date());
+              const defaultTime = isToday
+                ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                : '09:00';
+              const cfg = metricConfig[historyMetric] || {};
+              const title = cfg.title || cfg.prompt || toSentenceCase(historyMetric);
               return (
-                <Card key={meta.cardName}>
-                  <CardContent>
+                <div style={{ textAlign: 'center', color: '#6b7280', padding: '16px 0' }}>
+                  <div style={{ marginBottom: 10 }}>No data yet</div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setOpen({
+                        type: historyMetric,
+                        title,
+                        metricNames: [historyMetric],
+                        metricValues: [{ value: null }],
+                        tempEntryDate: toIsoDate(selectedDate),
+                        tempEntryTime: defaultTime,
+                        editEntryTs: undefined,
+                        entryAction: 'add',
+                        showMultiMetricSummary: false,
+                      });
+                    }}
+                  >
+                    Add new entry
+                  </Button>
+                </div>
+              );
+            }
+            return (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {entries.map((e) => {
+                  const dt = new Date(e.ts);
+                  const dateStr = dt.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+                  const timeStr = dt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                  return (
                     <div
+                      key={e.ts}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e5e7eb', borderRadius: 6, padding: '8px 10px', background: '#fff', cursor: 'pointer' }}
                       onClick={() => {
+                        const cfg = metricConfig[historyMetric] || {};
+                        const title = cfg.title || cfg.prompt || toSentenceCase(historyMetric);
                         const toIsoDate = (d) => {
                           const yyyy = d.getFullYear();
                           const mm = String(d.getMonth() + 1).padStart(2, '0');
                           const dd = String(d.getDate()).padStart(2, '0');
                           return `${yyyy}-${mm}-${dd}`;
                         };
-                        const now = new Date();
-                        const isToday = toKey(selectedDate) === toKey(new Date());
-                        const defaultTime = isToday
-                          ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-                          : '09:00';
-                        // Default dialog state
-                        const baseOpen = {
-                          type: meta.cardName,
-                          ...meta,
-                          metricValues,
-                          tempEntryDate: toIsoDate(selectedDate),
-                          tempEntryTime: defaultTime,
-                        };
-                        // Special handling for single-metric cards when exactly one entry exists on this day
-                        if ((meta.metricNames?.length ?? 0) === 1) {
-                          const metricName = meta.metricNames[0];
-                          const data = (records.dataPoints ?? {})[metricName] ?? {};
-                          const entries = Array.isArray(data.entries) ? data.entries : [];
-                          const dayStart = new Date(selectedDate);
-                          dayStart.setHours(0, 0, 0, 0);
-                          const startMs = dayStart.getTime();
-                          const endMs = startMs + 24 * 60 * 60 * 1000;
-                          const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
-                          if (dayEntries.length === 1) {
-                            // ONE entry: prefill for editing
-                            const e = dayEntries[0];
-                            const dt = new Date(e.ts);
-                            const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-                            const mv = [{ ...metricValues[0], value: e.value }];
-                            setOpen({
-                              ...baseOpen,
-                              metricValues: mv,
-                              tempEntryDate: toIsoDate(dt),
-                              tempEntryTime: timeStr,
-                              editEntryTs: e.ts,
-                              entryAction: 'update', // or 'add'
-                            });
-                            return;
-                          } else if (dayEntries.length > 1) {
-                            // MULTIPLE entries: show list view
-                            setOpen({
-                              ...baseOpen,
-                              showEntryList: true,
-                            });
-                            return;
-                          }
-                        }
-
-                        // Multi-metric card handling
-                        if ((meta.metricNames?.length ?? 0) > 1) {
-                          const dayStart = new Date(selectedDate);
-                          dayStart.setHours(0, 0, 0, 0);
-                          const startMs = dayStart.getTime();
-                          const endMs = startMs + 24 * 60 * 60 * 1000;
-
-                          // Gather most recent entries for each metric on this day
-                          const metricEntries = meta.metricNames.map(metricName => {
-                            const data = (records.dataPoints ?? {})[metricName] ?? {};
-                            const entries = Array.isArray(data.entries) ? data.entries : [];
-                            const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
-                            const lastEntry = dayEntries.length > 0 ? dayEntries[dayEntries.length - 1] : null;
-                            return { metricName, lastEntry };
-                          });
-
-                          // Check if all have entries and all share the same timestamp
-                          const allHaveEntries = metricEntries.every(me => me.lastEntry !== null);
-                          const timestamps = metricEntries.filter(me => me.lastEntry).map(me => me.lastEntry.ts);
-                          const allSameTimestamp = timestamps.length > 0 && timestamps.every(ts => ts === timestamps[0]);
-
-                          if (allHaveEntries && allSameTimestamp) {
-                            // All metrics have same timestamp: UPDATE mode
-                            const sharedTs = timestamps[0];
-                            const dt = new Date(sharedTs);
-                            const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
-                            const mv = metricEntries.map((me, idx) => ({
-                              ...metricValues[idx],
-                              value: me.lastEntry.value
-                            }));
-                            setOpen({
-                              ...baseOpen,
-                              metricValues: mv,
-                              tempEntryDate: toIsoDate(dt),
-                              tempEntryTime: timeStr,
-                              editEntryTs: sharedTs,
-                              entryAction: 'update',
-                              isMultiMetricGrouped: true,
-                            });
-                            return;
-                          } else if (timestamps.length > 0) {
-                            // Different timestamps or some missing: show summary and ADD mode
-                            setOpen({
-                              ...baseOpen,
-                              showMultiMetricSummary: true,
-                              multiMetricEntries: metricEntries,
-                            });
-                            return;
-                          }
-                        }
-
-                        setOpen(baseOpen);
+                        const timeStr24 = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                        setOpen({
+                          type: historyMetric,
+                          title,
+                          metricNames: [historyMetric],
+                          metricValues: [{ value: e.value }],
+                          tempEntryDate: toIsoDate(dt),
+                          tempEntryTime: timeStr24,
+                          editEntryTs: e.ts,
+                          entryAction: 'update',
+                          showMultiMetricSummary: false,
+                        });
                       }}
-                      style={{ cursor: "pointer", textAlign: "center" }}
                     >
-                      <div className="icon-row">
-                        <Icon style={{ width: 24, height: 24, color: hasValue ? color : "#9ca3af" }} />
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{dateStr}</div>
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>{timeStr}</div>
                       </div>
-                      <h2 className="card-title">{meta.title}</h2>
-                      {hasValue ? (
-                        <>
-                          <div className="card-data" style={{ color }}>
-                            {metricValues.map((mv, idx) => {
-                              let displayValue;
-                              if (mv.kind === "slider") {
-                                displayValue = `${mv.value ?? "—"}`;
-                              } else if (mv.kind === "switch") {
-                                displayValue = mv.value === true ? "Yes" : mv.value === false ? "No" : "—";
-                              } else {
-                                displayValue = `${mv.value ?? "—"}${mv.uom ? ` ${mv.uom}` : ""}`;
-                              }
-                              return (
-                                <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                  {metricValues.length > 1 ? (
-                                    <>
-                                      <span style={{ fontSize: "0.75em", fontWeight: "normal", marginRight: 4 }}>
-                                        {toSentenceCase(mv.metric)}:{" "}
-                                      </span>
-                                      {displayValue}
-                                    </>
-                                  ) : (
-                                    displayValue
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <p className="card-updated">
-                            {displayTimestamp ? fmtTime(new Date(displayTimestamp)) : "—"}
-                            {totalEntries > 1 && (meta.metricNames?.length === 1) && (
-                              <span style={{ marginLeft: 8, fontSize: '0.85em', color: '#9ca3af' }}>
-                                ({totalEntries} entries)
-                              </span>
-                            )}
-                          </p>
-                          {sources.length > 0 && (
-                            <p style={{ fontSize: '0.75em', color: '#9ca3af', marginTop: 2 }}>
-                              {sources.join(', ')}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="card-updated">No data yet</p>
-                      )}
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>
+                        {formatValue(e.value)}
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            });
-        })()}
-      </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Dialogs */}
       <Dialog open={open !== null} onOpenChange={() => setOpen(null)}>
@@ -665,7 +940,7 @@ export default function App() {
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
-              <Button onClick={() => setOpen(null)}>Use this date</Button>
+              <Button onClick={() => { setViewMode('day'); setOpen(null); }}>Use this date</Button>
             </DialogFooter>
           </DialogContent>
         )}
@@ -824,11 +1099,11 @@ export default function App() {
           </DialogContent>
         )}
 
-        {/* Settings: Edit user information */}
-        {open?.type === "settings" && (
+        {/* Profile: Edit user information */}
+        {open?.type === "profile" && (
           <DialogContent>
             <DialogHeader style={{ textAlign: "center", marginBottom: 16 }}>
-              <DialogTitle>Settings</DialogTitle>
+              <DialogTitle>Profile</DialogTitle>
             </DialogHeader>
             <div style={{ display: 'grid', gap: 12, minWidth: 280 }}>
               <div>
@@ -887,8 +1162,26 @@ export default function App() {
                   />
                 </div>
               </div>
+            </div>
+            <DialogFooter style={{ justifyContent: 'center', marginTop: 28 }}>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+              <Button onClick={() => {
+                const next = { ...(open?.tempUser ?? user) };
+                setUser(next);
+                try { localStorage.setItem('user', JSON.stringify(next)); } catch { }
+                setOpen(null);
+              }}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
 
-              {/* Connected services */}
+        {/* Connected Services */}
+        {open?.type === "services" && (
+          <DialogContent>
+            <DialogHeader style={{ textAlign: "center", marginBottom: 16 }}>
+              <DialogTitle>Connected Services</DialogTitle>
+            </DialogHeader>
+            <div style={{ display: 'grid', gap: 12, minWidth: 280 }}>
               <div style={{ marginTop: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Label>Connected services</Label>
@@ -977,7 +1270,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-              {/* end services */}
             </div>
             {open?.addingService ? (
               <DialogFooter style={{ justifyContent: 'center', marginTop: 28 }}>
@@ -1014,6 +1306,36 @@ export default function App() {
                 }}>Save</Button>
               </DialogFooter>
             )}
+          </DialogContent>
+        )}
+
+        {/* Import Data */}
+        {open?.type === "import" && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Import Data</DialogTitle>
+            </DialogHeader>
+            <div style={{ padding: '20px 0', textAlign: 'center', color: '#6b7280' }}>
+              Import functionality coming soon...
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setOpen(null)}>Close</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+
+        {/* Export Data */}
+        {open?.type === "export" && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Export Data</DialogTitle>
+            </DialogHeader>
+            <div style={{ padding: '20px 0', textAlign: 'center', color: '#6b7280' }}>
+              Export functionality coming soon...
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setOpen(null)}>Close</Button>
+            </DialogFooter>
           </DialogContent>
         )}
 

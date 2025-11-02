@@ -25,6 +25,26 @@ export function fmtTime(d) {
 }
 
 /**
+ * Format a Date object as a localized date+time string
+ * @param {Date|null} d - The date to format
+ * @returns {string|null} Formatted date+time or null if invalid
+ */
+export function fmtDateTime(d) {
+    if (!d) return null;
+    try {
+        return d.toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Convert a string to sentence case (first letter uppercase, rest lowercase)
  * @param {string} str - The string to convert
  * @returns {string} Sentence-cased string
