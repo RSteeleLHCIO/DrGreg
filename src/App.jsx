@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer } from "lucide-react";
 
 import {
   Dialog,
@@ -45,6 +45,7 @@ export default function App() {
     pain: { kind: "slider", uom: "", prompt: "How bad is your pain today?" },
     back: { kind: "slider", uom: "", prompt: "How bad is your back pain today?" },
     headache: { kind: "slider", uom: "", prompt: "How bad is your headache today?" },
+    tired: { kind: "slider", uom: "", prompt: "How tired do you feel today?" },
     temperature: { kind: "singleValue", uom: "°F" },
     heart: { kind: "singleValue", uom: "bpm", prompt: "What is your Heart Rate (beats per minute)?" },
     systolic: { kind: "singleValue", uom: "" },
@@ -91,6 +92,12 @@ export default function App() {
       title: "Heart Rate",
       icon: Heart,
       metricNames: ["heart"]
+    },
+    {
+      cardName: "temperature",
+      title: "Temperature",
+      icon: Thermometer,
+      metricNames: ["temperature"]
     },
     {
       cardName: "blood-pressure",
@@ -153,48 +160,62 @@ export default function App() {
   });
 
   const [records, setRecords] = useState(() => {
-    const todayKey = toKey(new Date());
+    // Helper to build data point structure from entries: [{ts, value, updatedAt, source}]
+    const make = (arr) => {
+      const dayValue = {};
+      arr.forEach((e) => { dayValue[String(e.ts)] = { value: e.value, updatedAt: e.updatedAt, source: e.source }; });
+      return { entries: arr, dayValue };
+    };
     return {
       dataPoints: {
-        "weight": {
-          dayValue: {
-            [todayKey]: { value: 172, updatedAt: new Date().toISOString() },
-            "2025-08-15": { value: 174, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
-          }
-        },
-        "heart": {
-          dayValue: {
-            [todayKey]: { value: 76, updatedAt: new Date().toISOString() },
-            "2025-08-15": { value: 88, updatedAt: new Date("2025-08-15T08:15:00").toISOString() }
-          }
-        },
-        "glucose": {
-          dayValue: {
-            [todayKey]: { value: 102, updatedAt: new Date().toISOString() },
-            "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T08:05:00").toISOString() }
-          }
-        },
-        "systolic": {
-          dayValue: {
-            [todayKey]: { value: 120, updatedAt: new Date().toISOString() },
-            "2025-08-15": { value: 130, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
-          }
-        },
-        "diastolic": {
-          dayValue: {
-            [todayKey]: { value: 80, updatedAt: new Date().toISOString() },
-            "2025-08-15": { value: 110, updatedAt: new Date("2025-08-15T09:10:00").toISOString() }
-          }
-        },
-        "tired": {
-          dayValue: {}
-        },
-        "headache": {
-          dayValue: {}
-        },
-        "back": {
-          dayValue: {}
-        },
+        // Weight: one reading per morning across days
+        weight: make([
+          { ts: new Date("2025-11-01T07:30:00").getTime(), value: 173, updatedAt: new Date("2025-11-01T07:31:00").toISOString(), source: "Fitbit" },
+          { ts: new Date("2025-11-02T07:40:00").getTime(), value: 172.5, updatedAt: new Date("2025-11-02T07:41:00").toISOString(), source: "Withings Scale" },
+        ]),
+        // Heart rate: multiple readings throughout the day
+        heart: make([
+          { ts: new Date("2025-11-01T08:20:00").getTime(), value: 78, updatedAt: new Date("2025-11-01T08:21:00").toISOString(), source: "Apple Health" },
+          { ts: new Date("2025-11-02T08:10:00").getTime(), value: 76, updatedAt: new Date("2025-11-02T08:12:00").toISOString(), source: "Apple Health" },
+          { ts: new Date("2025-11-02T12:05:00").getTime(), value: 82, updatedAt: new Date("2025-11-02T12:06:00").toISOString(), source: "Fitbit" },
+          { ts: new Date("2025-11-02T19:20:00").getTime(), value: 74, updatedAt: new Date("2025-11-02T19:22:00").toISOString(), source: "manual entry" },
+        ]),
+        // Glucose: morning fasting
+        glucose: make([
+          { ts: new Date("2025-11-01T07:45:00").getTime(), value: 110, updatedAt: new Date("2025-11-01T07:46:00").toISOString(), source: "Dexcom" },
+          { ts: new Date("2025-11-02T07:50:00").getTime(), value: 102, updatedAt: new Date("2025-11-02T07:51:00").toISOString(), source: "Dexcom" },
+        ]),
+        // Blood pressure: multiple times per day
+        systolic: make([
+          { ts: new Date("2025-11-01T09:00:00").getTime(), value: 130, updatedAt: new Date("2025-11-01T09:02:00").toISOString(), source: "manual entry" },
+          { ts: new Date("2025-11-02T08:30:00").getTime(), value: 120, updatedAt: new Date("2025-11-02T08:31:00").toISOString(), source: "Omron Connect" },
+          { ts: new Date("2025-11-02T12:30:00").getTime(), value: 126, updatedAt: new Date("2025-11-02T12:31:00").toISOString(), source: "Apple Health" },
+          { ts: new Date("2025-11-02T20:10:00").getTime(), value: 118, updatedAt: new Date("2025-11-02T20:12:00").toISOString(), source: "manual entry" },
+        ]),
+        diastolic: make([
+          { ts: new Date("2025-11-01T09:00:00").getTime(), value: 85, updatedAt: new Date("2025-11-01T09:02:00").toISOString(), source: "manual entry" },
+          { ts: new Date("2025-11-02T08:30:00").getTime(), value: 80, updatedAt: new Date("2025-11-02T08:31:00").toISOString(), source: "Omron Connect" },
+          { ts: new Date("2025-11-02T12:30:00").getTime(), value: 84, updatedAt: new Date("2025-11-02T12:31:00").toISOString(), source: "Apple Health" },
+          { ts: new Date("2025-11-02T20:10:00").getTime(), value: 78, updatedAt: new Date("2025-11-02T20:12:00").toISOString(), source: "manual entry" },
+        ]),
+        // Symptom sliders
+        tired: make([
+          { ts: new Date("2025-11-01T21:00:00").getTime(), value: 6, updatedAt: new Date("2025-11-01T21:01:00").toISOString(), source: "manual entry" },
+          { ts: new Date("2025-11-02T21:05:00").getTime(), value: 5, updatedAt: new Date("2025-11-02T21:06:00").toISOString(), source: "manual entry" },
+        ]),
+        headache: make([
+          { ts: new Date("2025-11-01T16:00:00").getTime(), value: 2, updatedAt: new Date("2025-11-01T16:02:00").toISOString(), source: "manual entry" },
+        ]),
+        back: make([
+          { ts: new Date("2025-11-02T18:30:00").getTime(), value: 3, updatedAt: new Date("2025-11-02T18:31:00").toISOString(), source: "manual entry" },
+        ]),
+        // Medication switches
+        tylenol: make([
+          { ts: new Date("2025-11-02T10:00:00").getTime(), value: true, updatedAt: new Date("2025-11-02T10:01:00").toISOString(), source: "manual entry" },
+        ]),
+        losartan: make([
+          { ts: new Date("2025-11-02T08:00:00").getTime(), value: true, updatedAt: new Date("2025-11-02T08:01:00").toISOString(), source: "manual entry" },
+        ]),
       },
     };
   });
@@ -204,22 +225,42 @@ export default function App() {
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate]);
 
   // Update metric values in the records (timestamped entries)
-  // newData: { metric, inputValue, ts }
+  // newData: { metric, inputValue, ts, editTs, source }
+  // In production, this would also update the backend database for this user
   const updateDayValues = (newData) => {
     setRecords((prev) => {
       const metricKey = newData.metric;
       const dp = prev.dataPoints[metricKey] ?? {};
-      const entries = Array.isArray(dp.entries) ? [...dp.entries] : [];
+      let entries = Array.isArray(dp.entries) ? [...dp.entries] : [];
       const ts = typeof newData.ts === 'number' ? newData.ts : Date.now();
-      entries.push({ ts, value: newData.inputValue });
+      const updatedAt = new Date().toISOString();
+      const source = newData.source || "manual entry"; // Default to manual entry if not specified
+
+      // Also persist into legacy dayValue map but keyed by timestamp (string)
+      const dv = { ...(dp.dayValue ?? {}) };
+
+      // If editing an existing entry, remove the old one and its legacy map entry
+      if (typeof newData.editTs === 'number') {
+        entries = entries.filter(e => e.ts !== newData.editTs);
+        if (dv.hasOwnProperty(String(newData.editTs))) {
+          delete dv[String(newData.editTs)];
+        }
+      }
+
+      // Add the new/updated entry and re-sort
+      entries.push({ ts, value: newData.inputValue, updatedAt, source });
       entries.sort((a, b) => a.ts - b.ts);
+
+      // Update legacy map with the new timestamp key
+      dv[String(ts)] = { value: newData.inputValue, updatedAt, source };
+
       const updatedDataPoints = {
         ...prev.dataPoints,
         [metricKey]: {
           ...dp,
           entries,
-          // keep any legacy dayValue for backward-compat
-          dayValue: dp.dayValue ?? {}
+          // maintain legacy dayValue, with new timestamp-based keys
+          dayValue: dv
         }
       };
       return { ...prev, dataPoints: updatedDataPoints };
@@ -383,20 +424,56 @@ export default function App() {
                 const startMs = dayStart.getTime();
                 const endMs = startMs + 24 * 60 * 60 * 1000;
                 let lastEntry = null;
+                let entryCount = 0;
                 for (let i = entries.length - 1; i >= 0; i--) {
                   const e = entries[i];
-                  if (e.ts >= startMs && e.ts < endMs) { lastEntry = e; break; }
+                  if (e.ts >= startMs && e.ts < endMs) {
+                    if (!lastEntry) lastEntry = e;
+                    entryCount++;
+                  }
                 }
-                const value = lastEntry ? lastEntry.value : (data.dayValue && data.dayValue[selectedKey]?.value) ?? fallbackValue;
-                const updatedAt = lastEntry ? new Date(lastEntry.ts).toISOString() : (data.dayValue && data.dayValue[selectedKey]?.updatedAt) ?? fallbackUpdated;
-                return { metric: metricName, ...config, value, updatedAt };
+                // Fallback to legacy dayValue by scanning timestamp-based keys (and date-only keys)
+                let dvValue = null;
+                let dvUpdated = null;
+                if (!lastEntry && data.dayValue) {
+                  const keys = Object.keys(data.dayValue);
+                  // Scan keys newest-first if possible by sorting
+                  keys.sort((a, b) => {
+                    const pa = Date.parse(a) || Number(a) || 0;
+                    const pb = Date.parse(b) || Number(b) || 0;
+                    return pa - pb;
+                  });
+                  for (let i = keys.length - 1; i >= 0; i--) {
+                    const k = keys[i];
+                    let tsK = Number(k);
+                    if (!Number.isFinite(tsK)) {
+                      const parsed = Date.parse(k.length === 10 ? `${k}T00:00:00` : k);
+                      tsK = Number.isFinite(parsed) ? parsed : 0;
+                    }
+                    if (tsK >= startMs && tsK < endMs) {
+                      const rec = data.dayValue[k];
+                      dvValue = rec?.value ?? null;
+                      dvUpdated = rec?.updatedAt ?? null;
+                      break;
+                    }
+                  }
+                }
+                const value = lastEntry ? lastEntry.value : (dvValue ?? fallbackValue);
+                const timestamp = lastEntry ? lastEntry.ts : null;
+                const source = lastEntry ? lastEntry.source : null;
+                const updatedAt = lastEntry ? (lastEntry.updatedAt ?? new Date().toISOString()) : (dvUpdated ?? fallbackUpdated);
+                return { metric: metricName, ...config, value, timestamp, source, updatedAt, entryCount };
               });
               const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
               const Icon = meta.icon ?? Activity;
               const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
 
-              // Use the first updatedAt for display
-              const updatedAt = metricValues.find(v => v.updatedAt)?.updatedAt;
+              // Use the first timestamp for display; count total entries for badge
+              const displayTimestamp = metricValues.find(v => v.timestamp)?.timestamp;
+              const totalEntries = metricValues.reduce((sum, mv) => sum + (mv.entryCount || 0), 0);
+
+              // Collect unique sources (excluding "manual entry")
+              const sources = [...new Set(metricValues.map(mv => mv.source).filter(s => s && s !== "manual entry"))];
 
               return (
                 <Card key={meta.cardName}>
@@ -414,13 +491,101 @@ export default function App() {
                         const defaultTime = isToday
                           ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
                           : '09:00';
-                        setOpen({
+                        // Default dialog state
+                        const baseOpen = {
                           type: meta.cardName,
                           ...meta,
                           metricValues,
                           tempEntryDate: toIsoDate(selectedDate),
                           tempEntryTime: defaultTime,
-                        });
+                        };
+                        // Special handling for single-metric cards when exactly one entry exists on this day
+                        if ((meta.metricNames?.length ?? 0) === 1) {
+                          const metricName = meta.metricNames[0];
+                          const data = (records.dataPoints ?? {})[metricName] ?? {};
+                          const entries = Array.isArray(data.entries) ? data.entries : [];
+                          const dayStart = new Date(selectedDate);
+                          dayStart.setHours(0, 0, 0, 0);
+                          const startMs = dayStart.getTime();
+                          const endMs = startMs + 24 * 60 * 60 * 1000;
+                          const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
+                          if (dayEntries.length === 1) {
+                            // ONE entry: prefill for editing
+                            const e = dayEntries[0];
+                            const dt = new Date(e.ts);
+                            const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                            const mv = [{ ...metricValues[0], value: e.value }];
+                            setOpen({
+                              ...baseOpen,
+                              metricValues: mv,
+                              tempEntryDate: toIsoDate(dt),
+                              tempEntryTime: timeStr,
+                              editEntryTs: e.ts,
+                              entryAction: 'update', // or 'add'
+                            });
+                            return;
+                          } else if (dayEntries.length > 1) {
+                            // MULTIPLE entries: show list view
+                            setOpen({
+                              ...baseOpen,
+                              showEntryList: true,
+                            });
+                            return;
+                          }
+                        }
+
+                        // Multi-metric card handling
+                        if ((meta.metricNames?.length ?? 0) > 1) {
+                          const dayStart = new Date(selectedDate);
+                          dayStart.setHours(0, 0, 0, 0);
+                          const startMs = dayStart.getTime();
+                          const endMs = startMs + 24 * 60 * 60 * 1000;
+
+                          // Gather most recent entries for each metric on this day
+                          const metricEntries = meta.metricNames.map(metricName => {
+                            const data = (records.dataPoints ?? {})[metricName] ?? {};
+                            const entries = Array.isArray(data.entries) ? data.entries : [];
+                            const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
+                            const lastEntry = dayEntries.length > 0 ? dayEntries[dayEntries.length - 1] : null;
+                            return { metricName, lastEntry };
+                          });
+
+                          // Check if all have entries and all share the same timestamp
+                          const allHaveEntries = metricEntries.every(me => me.lastEntry !== null);
+                          const timestamps = metricEntries.filter(me => me.lastEntry).map(me => me.lastEntry.ts);
+                          const allSameTimestamp = timestamps.length > 0 && timestamps.every(ts => ts === timestamps[0]);
+
+                          if (allHaveEntries && allSameTimestamp) {
+                            // All metrics have same timestamp: UPDATE mode
+                            const sharedTs = timestamps[0];
+                            const dt = new Date(sharedTs);
+                            const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                            const mv = metricEntries.map((me, idx) => ({
+                              ...metricValues[idx],
+                              value: me.lastEntry.value
+                            }));
+                            setOpen({
+                              ...baseOpen,
+                              metricValues: mv,
+                              tempEntryDate: toIsoDate(dt),
+                              tempEntryTime: timeStr,
+                              editEntryTs: sharedTs,
+                              entryAction: 'update',
+                              isMultiMetricGrouped: true,
+                            });
+                            return;
+                          } else if (timestamps.length > 0) {
+                            // Different timestamps or some missing: show summary and ADD mode
+                            setOpen({
+                              ...baseOpen,
+                              showMultiMetricSummary: true,
+                              multiMetricEntries: metricEntries,
+                            });
+                            return;
+                          }
+                        }
+
+                        setOpen(baseOpen);
                       }}
                       style={{ cursor: "pointer", textAlign: "center" }}
                     >
@@ -456,7 +621,19 @@ export default function App() {
                               );
                             })}
                           </div>
-                          <p className="card-updated">Updated {fmtTime(updatedAt ? new Date(updatedAt) : null) ?? "—"}</p>
+                          <p className="card-updated">
+                            {displayTimestamp ? fmtTime(new Date(displayTimestamp)) : "—"}
+                            {totalEntries > 1 && (meta.metricNames?.length === 1) && (
+                              <span style={{ marginLeft: 8, fontSize: '0.85em', color: '#9ca3af' }}>
+                                ({totalEntries} entries)
+                              </span>
+                            )}
+                          </p>
+                          {sources.length > 0 && (
+                            <p style={{ fontSize: '0.75em', color: '#9ca3af', marginTop: 2 }}>
+                              {sources.join(', ')}
+                            </p>
+                          )}
                         </>
                       ) : (
                         <p className="card-updated">No data yet</p>
@@ -847,7 +1024,236 @@ export default function App() {
               <DialogTitle>{open.title}</DialogTitle>
             </DialogHeader>
             <div>
-              {open.metricNames.map((metricName, idx) => {
+              {/* Multi-metric summary view when timestamps differ or some missing */}
+              {open?.showMultiMetricSummary && open?.multiMetricEntries && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, marginBottom: 12, color: '#6b7280' }}>
+                    Last readings taken at different times:
+                  </div>
+                  <div style={{ display: 'grid', gap: 6, marginBottom: 16, padding: 12, backgroundColor: '#f9fafb', borderRadius: 6, border: '1px solid #e5e7eb' }}>
+                    {open.multiMetricEntries.map((me, meIdx) => {
+                      const cfg = metricConfig[me.metricName];
+                      const label = cfg.prompt ?? toSentenceCase(me.metricName);
+                      if (!me.lastEntry) {
+                        return (
+                          <div key={me.metricName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 14 }}>
+                            <div style={{ color: '#9ca3af' }}>
+                              • {label}: <em>no data</em>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                const toIsoDate = (d) => {
+                                  const yyyy = d.getFullYear();
+                                  const mm = String(d.getMonth() + 1).padStart(2, '0');
+                                  const dd = String(d.getDate()).padStart(2, '0');
+                                  return `${yyyy}-${mm}-${dd}`;
+                                };
+                                const now = new Date();
+                                const isToday = toKey(selectedDate) === toKey(new Date());
+                                const defaultTime = isToday
+                                  ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                                  : '09:00';
+                                setOpen({
+                                  type: me.metricName,
+                                  title: label,
+                                  metricNames: [me.metricName],
+                                  metricValues: [{ ...open.metricValues[meIdx], value: null }],
+                                  tempEntryDate: toIsoDate(selectedDate),
+                                  tempEntryTime: defaultTime,
+                                  entryAction: undefined,
+                                  editEntryTs: undefined,
+                                  showMultiMetricSummary: false,
+                                });
+                              }}
+                              style={{ padding: '4px 8px', fontSize: 12 }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        );
+                      }
+                      const dt = new Date(me.lastEntry.ts);
+                      const hours = dt.getHours();
+                      const minutes = dt.getMinutes();
+                      const ampm = hours >= 12 ? 'pm' : 'am';
+                      const hours12 = hours % 12 || 12;
+                      const timeStr = `${hours12}:${String(minutes).padStart(2, '0')} ${ampm}`;
+
+                      let valueStr = '';
+                      if (cfg.kind === 'slider') {
+                        valueStr = String(me.lastEntry.value);
+                      } else if (cfg.kind === 'switch') {
+                        valueStr = me.lastEntry.value === true ? 'Yes' : me.lastEntry.value === false ? 'No' : '—';
+                      } else {
+                        valueStr = `${me.lastEntry.value ?? '—'}${cfg.uom ? ` ${cfg.uom}` : ''}`;
+                      }
+
+                      return (
+                        <div key={me.metricName} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 14 }}>
+                          <div>
+                            • {label}: <strong>{valueStr}</strong> at {timeStr}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => {
+                              const toIsoDate = (d) => {
+                                const yyyy = d.getFullYear();
+                                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                                const dd = String(d.getDate()).padStart(2, '0');
+                                return `${yyyy}-${mm}-${dd}`;
+                              };
+                              const timeStr2 = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                              setOpen({
+                                type: me.metricName,
+                                title: label,
+                                metricNames: [me.metricName],
+                                metricValues: [{ ...open.metricValues[meIdx], value: me.lastEntry.value }],
+                                tempEntryDate: toIsoDate(dt),
+                                tempEntryTime: timeStr2,
+                                editEntryTs: me.lastEntry.ts,
+                                entryAction: 'update',
+                                showMultiMetricSummary: false,
+                              });
+                            }}
+                            style={{ padding: '4px 8px', fontSize: 12 }}
+                          >
+                            <Edit size={14} />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => {
+                      // Clear values and switch to fresh add mode (like no data exists)
+                      const now = new Date();
+                      const isToday = toKey(selectedDate) === toKey(new Date());
+                      const defaultTime = isToday
+                        ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                        : '09:00';
+                      const clearedValues = open.metricValues.map(mv => ({ ...mv, value: null }));
+                      setOpen({
+                        ...open,
+                        showMultiMetricSummary: false,
+                        metricValues: clearedValues,
+                        tempEntryTime: defaultTime,
+                        entryAction: undefined, // No toggle buttons
+                        editEntryTs: undefined,
+                        isMultiMetricGrouped: false,
+                      });
+                    }}
+                    style={{ width: '100%' }}
+                  >
+                    Update All
+                  </Button>
+                </div>
+              )}
+
+              {/* Multi-entry list view for single-metric cards with >1 entry on this day */}
+              {(() => {
+                const isSingle = (open?.metricNames?.length ?? 0) === 1;
+                if (!isSingle || !open?.showEntryList) {
+                  return null;
+                }
+                const metricName = open.metricNames[0];
+                const data = (records.dataPoints ?? {})[metricName] ?? {};
+                const entries = Array.isArray(data.entries) ? data.entries : [];
+                const dayStart = new Date(selectedDate);
+                dayStart.setHours(0, 0, 0, 0);
+                const startMs = dayStart.getTime();
+                const endMs = startMs + 24 * 60 * 60 * 1000;
+                const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs).sort((a, b) => b.ts - a.ts);
+                const cfg = metricConfig[metricName];
+                const formatValue = (v) => {
+                  if (cfg.kind === "slider") return String(v);
+                  if (cfg.kind === "switch") return v === true ? "Yes" : v === false ? "No" : "—";
+                  return `${v ?? "—"}${cfg.uom ? ` ${cfg.uom}` : ""}`;
+                };
+                const format12Hour = (dt) => {
+                  let hours = dt.getHours();
+                  const minutes = dt.getMinutes();
+                  const ampm = hours >= 12 ? 'pm' : 'am';
+                  hours = hours % 12 || 12;
+                  return `${hours}:${String(minutes).padStart(2, '0')} ${ampm}`;
+                };
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 14, marginBottom: 8, color: '#6b7280' }}>Existing entries for this day:</div>
+                    <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+                      {dayEntries.map((e) => {
+                        const dt = new Date(e.ts);
+                        const timeStr = format12Hour(dt);
+                        return (
+                          <div key={e.ts} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 8, border: '1px solid #e5e7eb', borderRadius: 6, backgroundColor: '#f9fafb' }}>
+                            <div style={{ fontSize: 14 }}>
+                              <span style={{ fontWeight: 600 }}>{timeStr}</span>
+                              {' • '}
+                              <span>{formatValue(e.value)}</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => {
+                                const toIsoDate = (d) => {
+                                  const yyyy = d.getFullYear();
+                                  const mm = String(d.getMonth() + 1).padStart(2, '0');
+                                  const dd = String(d.getDate()).padStart(2, '0');
+                                  return `${yyyy}-${mm}-${dd}`;
+                                };
+                                const timeStr2 = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                                const mv = [{ ...open.metricValues[0], value: e.value }];
+                                setOpen({
+                                  ...open,
+                                  metricValues: mv,
+                                  tempEntryDate: toIsoDate(dt),
+                                  tempEntryTime: timeStr2,
+                                  editEntryTs: e.ts,
+                                  entryAction: 'update',
+                                  showEntryList: false,
+                                });
+                              }}
+                              style={{ padding: '4px 8px', fontSize: 12 }}
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const toIsoDate = (d) => {
+                          const yyyy = d.getFullYear();
+                          const mm = String(d.getMonth() + 1).padStart(2, '0');
+                          const dd = String(d.getDate()).padStart(2, '0');
+                          return `${yyyy}-${mm}-${dd}`;
+                        };
+                        setOpen({
+                          ...open,
+                          metricValues: [{ ...open.metricValues[0], value: null }],
+                          tempEntryDate: toIsoDate(selectedDate),
+                          tempEntryTime: '',
+                          editEntryTs: undefined,
+                          entryAction: 'add',
+                          showEntryList: false,
+                        });
+                      }}
+                      style={{ width: '100%' }}
+                    >
+                      Add new entry
+                    </Button>
+                  </div>
+                );
+              })()}
+              {/* Only show input fields when NOT showing entry list or multi-metric summary */}
+              {!open?.showEntryList && !open?.showMultiMetricSummary && open.metricNames.map((metricName, idx) => {
                 const cfg = metricConfig[metricName];
                 const kind = cfg.kind;
                 const promptText = cfg.prompt ?? toSentenceCase(metricName);
@@ -949,93 +1355,184 @@ export default function App() {
                 }
               })}
             </div>
-            {/* Timestamp controls moved to bottom above actions for cleaner layout */}
-            <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 16, paddingTop: 12 }}>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }} title="Date and Time this data was captured">As of</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="btn-icon"
-                    aria-label="Select date"
-                    title="Select date"
-                    style={{ width: 28, height: 28, padding: 0, background: 'transparent', border: 'none' }}
-                    onClick={() => {
-                      const el = document.getElementById('entry-date');
-                      if (el) {
-                        // @ts-ignore
-                        if (typeof el.showPicker === 'function') el.showPicker(); else el.focus();
-                      }
-                    }}
-                  >
-                    <CalendarDays size={14} />
-                  </Button>
-                  <Input
-                    id="entry-date"
-                    type="date"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    aria-label="Entry date"
-                    className="no-native-picker"
-                    style={{ fontSize: 14, border: 'none', outline: 'none', boxShadow: 'none', padding: 0 }}
-                    value={open?.tempEntryDate ?? ''}
-                    onChange={(e) => setOpen({ ...open, tempEntryDate: e.target.value })}
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="btn-icon"
-                    aria-label="Select time"
-                    title="Select time"
-                    style={{ width: 28, height: 28, padding: 0, background: 'transparent', border: 'none' }}
-                    onClick={() => {
-                      const el = document.getElementById('entry-time');
-                      if (el) {
-                        // @ts-ignore
-                        if (typeof el.showPicker === 'function') el.showPicker(); else el.focus();
-                      }
-                    }}
-                  >
-                    <Clock size={14} />
-                  </Button>
-                  <Input
-                    id="entry-time"
-                    type="time"
-                    step={60}
-                    autoComplete="off"
-                    data-lpignore="true"
-                    aria-label="Entry time"
-                    className="no-native-picker"
-                    style={{ fontSize: 14, border: 'none', outline: 'none', boxShadow: 'none', padding: 0 }}
-                    value={open?.tempEntryTime ?? ''}
-                    onChange={(e) => setOpen({ ...open, tempEntryTime: e.target.value })}
-                  />
+            {/* Secondary action: offer adding a new entry when currently editing an existing one */}
+            {!open?.showEntryList && !open?.showMultiMetricSummary && (open?.entryAction === 'update' || typeof open?.editEntryTs === 'number') && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    // Enter add mode: clear values and time, hide this button afterwards
+                    const updatedValues = (open.metricValues ?? []).map(mv => ({ ...mv, value: null }));
+                    setOpen({
+                      ...open,
+                      entryAction: 'add',
+                      metricValues: updatedValues,
+                      tempEntryTime: '',
+                      editEntryTs: undefined
+                    });
+                  }}
+                  style={{ padding: '4px 10px', fontSize: 12 }}
+                >
+                  Add a new entry
+                </Button>
+              </div>
+            )}
+            {/* Timestamp controls moved to bottom above actions for cleaner layout - hide when showing entry list or summary */}
+            {!open?.showEntryList && !open?.showMultiMetricSummary && (
+              <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 16, paddingTop: 12 }}>
+                {/* Show data source for the entry being edited (exclude manual entry) */}
+                {typeof open?.editEntryTs === 'number' && (() => {
+                  const ts = open.editEntryTs;
+                  const names = open?.metricNames ?? [];
+                  const collected = new Set();
+                  names.forEach((metricName) => {
+                    const data = (records.dataPoints ?? {})[metricName] ?? {};
+                    const entries = Array.isArray(data.entries) ? data.entries : [];
+                    const ent = entries.find(e => e.ts === ts);
+                    const src = ent?.source;
+                    if (src && src !== 'manual entry') collected.add(src);
+                  });
+                  const list = Array.from(collected);
+                  if (list.length === 0) return null;
+                  const label = list.length === 1 ? 'Source' : 'Sources';
+                  return (
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>
+                      {label}: {list.join(', ')}
+                    </div>
+                  );
+                })()}
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }} title="Date and Time this data was captured">As of</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="btn-icon"
+                      aria-label="Select date"
+                      title="Select date"
+                      style={{ width: 28, height: 28, padding: 0, background: 'transparent', border: 'none' }}
+                      onClick={() => {
+                        const el = document.getElementById('entry-date');
+                        if (el) {
+                          // @ts-ignore
+                          if (typeof el.showPicker === 'function') el.showPicker(); else el.focus();
+                        }
+                      }}
+                    >
+                      <CalendarDays size={14} />
+                    </Button>
+                    <Input
+                      id="entry-date"
+                      type="date"
+                      autoComplete="off"
+                      data-lpignore="true"
+                      aria-label="Entry date"
+                      className="no-native-picker"
+                      style={{ fontSize: 14, border: 'none', outline: 'none', boxShadow: 'none', padding: 0 }}
+                      value={open?.tempEntryDate ?? ''}
+                      onChange={(e) => setOpen({ ...open, tempEntryDate: e.target.value })}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="btn-icon"
+                      aria-label="Select time"
+                      title="Select time"
+                      style={{ width: 28, height: 28, padding: 0, background: 'transparent', border: 'none' }}
+                      onClick={() => {
+                        const el = document.getElementById('entry-time');
+                        if (el) {
+                          // @ts-ignore
+                          if (typeof el.showPicker === 'function') el.showPicker(); else el.focus();
+                        }
+                      }}
+                    >
+                      <Clock size={14} />
+                    </Button>
+                    <Input
+                      id="entry-time"
+                      type="time"
+                      step={60}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      aria-label="Entry time"
+                      className="no-native-picker"
+                      style={{ fontSize: 14, border: 'none', outline: 'none', boxShadow: 'none', padding: 0 }}
+                      value={open?.tempEntryTime ?? ''}
+                      onChange={(e) => setOpen({ ...open, tempEntryTime: e.target.value })}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            <DialogFooter style={{ justifyContent: 'center', marginTop: 20 }}>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => {
-                // Build timestamp based on chosen date/time
-                let ts = Date.now();
-                try {
-                  const dateStr = open?.tempEntryDate; // YYYY-MM-DD
-                  const timeStr = open?.tempEntryTime || '09:00'; // HH:MM
-                  if (dateStr) {
-                    const d = new Date(`${dateStr}T${timeStr}:00`);
-                    if (!isNaN(d.getTime())) ts = d.getTime();
+            {!open?.showEntryList && !open?.showMultiMetricSummary && (
+              <DialogFooter style={{ justifyContent: 'center', marginTop: 20 }}>
+                <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+                <Button onClick={() => {
+                  // Validate time is provided
+                  if (!open?.tempEntryTime || open.tempEntryTime.trim() === '') {
+                    alert('Please select a time for this entry.');
+                    return;
                   }
-                } catch { }
-                open.metricNames.forEach((metricName, idx) => {
-                  updateDayValues({ metric: metricName, inputValue: open.metricValues?.[idx]?.value, ts });
-                });
-                setOpen(null);
-              }}>Save</Button>
-            </DialogFooter>
+
+                  // Build timestamp based on chosen date/time
+                  let ts = Date.now();
+                  try {
+                    const dateStr = open?.tempEntryDate; // YYYY-MM-DD
+                    const timeStr = open?.tempEntryTime; // HH:MM
+                    if (dateStr && timeStr) {
+                      const d = new Date(`${dateStr}T${timeStr}:00`);
+                      if (!isNaN(d.getTime())) ts = d.getTime();
+                    }
+                  } catch { }
+
+                  const isSingle = (open?.metricNames?.length ?? 0) === 1;
+                  const isMultiGrouped = open?.isMultiMetricGrouped === true;
+
+                  // Check for timestamp collision when adding a new entry
+                  if (isSingle && open?.entryAction === 'add') {
+                    const metricName = open.metricNames[0];
+                    const data = (records.dataPoints ?? {})[metricName] ?? {};
+                    const entries = Array.isArray(data.entries) ? data.entries : [];
+                    const existingEntry = entries.find(e => e.ts === ts);
+
+                    if (existingEntry) {
+                      const dt = new Date(ts);
+                      const timeStr = `${dt.getHours()}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                      const ampm = dt.getHours() >= 12 ? 'pm' : 'am';
+                      const hours12 = dt.getHours() % 12 || 12;
+                      const time12 = `${hours12}:${String(dt.getMinutes()).padStart(2, '0')} ${ampm}`;
+
+                      if (!window.confirm(`An entry already exists at ${time12}. This will overwrite the existing value. Continue?`)) {
+                        return;
+                      }
+                    }
+                  }
+
+                  if ((isSingle || isMultiGrouped) && open?.entryAction === 'update' && typeof open?.editEntryTs === 'number') {
+                    // Update the existing entry/grouped reading (replace, and move if timestamp changed)
+                    open.metricNames.forEach((metricName, idx) => {
+                      updateDayValues({
+                        metric: metricName,
+                        inputValue: open.metricValues?.[idx]?.value,
+                        ts,
+                        editTs: open.editEntryTs,
+                      });
+                    });
+                  } else {
+                    // Add new entry (collision check already handled above with confirmation)
+                    open.metricNames.forEach((metricName, idx) => {
+                      updateDayValues({ metric: metricName, inputValue: open.metricValues?.[idx]?.value, ts });
+                    });
+                  }
+                  setOpen(null);
+                }}>Save</Button>
+              </DialogFooter>
+            )}
           </DialogContent>
         )}
       </Dialog>
