@@ -23,14 +23,16 @@ export function DialogContent({ children, className = "" }) {
     );
 }
 
-export function DialogHeader({ children }) {
-    return <div style={{ marginBottom: 8 }}>{children}</div>;
+export function DialogHeader({ children, className = "", style = {} }) {
+    const baseStyle = { marginBottom: 8, ...style };
+    return <div className={className} style={baseStyle}>{children}</div>;
 }
 
 export function DialogTitle({ children }) {
     return <h3 style={{ margin: 0 }}>{children}</h3>;
 }
 
-export function DialogFooter({ children }) {
-    return <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>{children}</div>;
+export function DialogFooter({ children, className = "", style = {} }) {
+    const baseStyle = { marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8, ...style };
+    return <div className={className} style={baseStyle}>{children}</div>;
 }

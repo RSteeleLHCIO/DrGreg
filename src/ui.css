@@ -106,12 +106,41 @@ body {
     border-radius: 0 0 8px 8px;
 }
 
+/* Narrow dialog variant for compact edit panels */
+.dialog-content.narrow-dialog {
+    display: block;
+    /* predictable sizing */
+    box-sizing: border-box;
+    width: auto;
+    max-width: 420px;
+    /* hard cap for compact panels */
+    min-width: 280px;
+    /* small but usable */
+}
+
+.dialog-content.narrow-dialog>div {
+    margin: 0;
+    /* avoid extra horizontal width from margins */
+}
+
+.dialog-content.narrow-dialog .dialog-footer {
+    margin: 12px 0 0 0;
+    /* remove negative margins that widen panel */
+    padding: 12px 0 0 0;
+    border-top: 1px solid #e5e7eb;
+    background: transparent;
+}
+
 input[type="date"],
+input[type="time"],
 input[type="number"],
 input[type="text"] {
     padding: 8px;
     border-radius: 6px;
     border: 1px solid #e5e7eb;
+    font-family: inherit;
+    font-size: 16px;
+    color: inherit;
 }
 
 /* responsive container fix */
@@ -124,6 +153,58 @@ input[type="text"] {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 12px;
+}
+
+/* Drag & drop lists in Customize dialog */
+.dnd-column {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.dnd-column-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.dnd-list {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    min-height: 160px;
+    /* make drop zone usable even when empty */
+    border: 1px dashed #e5e7eb;
+    border-radius: 8px;
+    background: white;
+}
+
+.dnd-item {
+    user-select: none;
+    padding: 6px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    margin-bottom: 6px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dnd-item .dnd-icon {
+    flex: 0 0 auto;
+}
+
+.dnd-item .dnd-title {
+    flex: 1 1 auto;
+}
+
+.dnd-empty {
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+    padding: 8px 0;
 }
 
 /* Card typography */
@@ -188,4 +269,28 @@ input[type="text"] {
 .header-date {
     font-size: 16px;
     margin-top: 2px;
+}
+
+/* .header-date-row removed (not used) */
+
+/* Hide native date picker icon inside DOB field; we use external button */
+input[type="date"].no-native-picker::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+input[type="date"].no-native-picker {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+
+/* Hide native time picker icon for targeted inputs; we use external button */
+input[type="time"].no-native-picker::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+input[type="time"].no-native-picker {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
 }
