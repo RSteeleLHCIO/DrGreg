@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut } from "lucide-react";
 
 import {
   Dialog,
@@ -15,8 +15,93 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
 import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
+import LoginScreen from "./components/login-screen";
+import ProfileSetup from "./components/profile-setup";
 
 export default function App() {
+
+  // Auth — JWT stored in sessionStorage (cleared when tab closes)
+  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem("authToken"));
+  // 'loading' while fetching profile, 'setup' if no profile found, 'ready' otherwise
+  const [profileReady, setProfileReady] = useState(() => sessionStorage.getItem("authToken") ? "loading" : "ready");
+  const [authUsername, setAuthUsername] = useState("");
+
+  const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
+  async function fetchAndApplyProfile(token) {
+    try {
+      const res = await fetch(`${API}/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("fetch failed");
+      const { profile } = await res.json();
+      if (!profile) {
+        setProfileReady("setup");
+        return;
+      }
+      // Merge fetched profile into local user state
+      setUser(prev => {
+        const merged = { ...prev, ...profile, services: prev.services ?? [] };
+        try { localStorage.setItem("user", JSON.stringify(merged)); } catch { }
+        return merged;
+      });
+      setProfileReady("ready");
+    } catch {
+      // Network error — fall back to whatever is in localStorage
+      setProfileReady("ready");
+    }
+  }
+
+  // On mount, if we already have a token (tab restored), load the profile
+  React.useEffect(() => {
+    const token = sessionStorage.getItem("authToken");
+    if (token) fetchAndApplyProfile(token);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveProfileToBackend(token, profileData) {
+    const res = await fetch(`${API}/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(profileData),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to save profile");
+    }
+  }
+
+  // Upload a photo File to S3 via the Lambda proxy; returns the permanent public URL.
+  // Routing through our Lambda avoids all S3 CORS complexity.
+  async function uploadPhoto(file, token) {
+    const contentType = file.type || "image/jpeg";
+    // Read as base64 and strip the data-URL prefix
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = (e) => resolve(e.target.result.split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const res = await fetch(`${API}/photo-upload`, {
+      method: "PUT",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ image: base64, contentType }),
+    });
+    if (!res.ok) throw new Error("Photo upload failed");
+    const { publicUrl } = await res.json();
+    return publicUrl;
+  }
+
+  function handleAuth(token, username) {
+    sessionStorage.setItem("authToken", token);
+    setAuthToken(token);
+    setAuthUsername(username);
+    setProfileReady("loading");
+    fetchAndApplyProfile(token);
+  }
 
   /* --- Static metric definitions --
       This will be loaded from a config file or API
@@ -375,6 +460,36 @@ export default function App() {
     }
   };
 
+  if (!authToken) {
+    return <LoginScreen onAuth={handleAuth} />;
+  }
+
+  if (profileReady === "loading") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16, color: "#16a34a" }}>
+        <div className="login-spinner" style={{ width: 36, height: 36, borderWidth: 3, borderColor: "rgba(22,163,74,0.2)", borderTopColor: "#16a34a" }} />
+        <div style={{ fontSize: 15, color: "#6b7280" }}>Loading your profile…</div>
+      </div>
+    );
+  }
+
+  if (profileReady === "setup") {
+    return (
+      <ProfileSetup
+        username={authUsername}
+        onSave={async (profileData) => {
+          await saveProfileToBackend(authToken, profileData);
+          setUser(prev => {
+            const merged = { ...prev, ...profileData, services: prev.services ?? [] };
+            try { localStorage.setItem("user", JSON.stringify(merged)); } catch { }
+            return merged;
+          });
+          setProfileReady("ready");
+        }}
+      />
+    );
+  }
+
   return (
     <div style={{ padding: 24 }} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
 
@@ -391,7 +506,14 @@ export default function App() {
               className="settings-menu-item"
               onClick={() => {
                 setShowSettingsMenu(false);
-                setOpen({ type: "profile", tempUser: { ...user } });
+                setOpen({ type: "profile", tempUser: (() => {
+                  const u = { ...user };
+                  if (u.heightInches) {
+                    u.heightFt = Math.floor(u.heightInches / 12);
+                    u.heightIn = u.heightInches % 12;
+                  }
+                  return u;
+                })() });
               }}
             >
               <User size={18} />
@@ -437,6 +559,19 @@ export default function App() {
             >
               <Download size={18} />
               <span>Export Data</span>
+            </button>
+            <div className="settings-menu-divider" />
+            <button
+              className="settings-menu-item"
+              style={{ color: "rgba(248,113,113,0.9)" }}
+              onClick={() => {
+                setShowSettingsMenu(false);
+                sessionStorage.removeItem("authToken");
+                setAuthToken(null);
+              }}
+            >
+              <LogOut size={18} style={{ color: "rgba(248,113,113,0.7)" }} />
+              <span>Sign Out</span>
             </button>
           </div>
         </>
@@ -1211,11 +1346,10 @@ export default function App() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (ev) => {
-                      setOpen({ ...open, tempUser: { ...open.tempUser, photo: ev.target.result } });
-                    };
-                    reader.readAsDataURL(file);
+                    // Use a blob URL for instant local preview; the actual S3 upload
+                    // happens when the user clicks Save.
+                    const previewUrl = URL.createObjectURL(file);
+                    setOpen({ ...open, _photoFile: file, tempUser: { ...open.tempUser, photo: previewUrl } });
                   }}
                 />
               </div>
@@ -1287,14 +1421,98 @@ export default function App() {
                   />
                 </div>
               </fieldset>
+              {/* Height — stored in inches, displayed as ft + in */}
+              <fieldset className="notched-field">
+                <legend className="notched-label">Height</legend>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Input
+                    type="number" min="1" max="8"
+                    autoComplete="off" data-lpignore="true"
+                    value={open?.tempUser?.heightFt ?? ""}
+                    onChange={(e) => {
+                      const ft = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                      const inches = (ft === "" ? null : ft * 12 + (parseInt(open?.tempUser?.heightIn ?? 0, 10) || 0));
+                      setOpen({ ...open, tempUser: { ...open.tempUser, heightFt: ft, heightInches: inches } });
+                    }}
+                    placeholder="ft"
+                    style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent', width: 48 }}
+                  />
+                  <span style={{ color: '#9ca3af', fontSize: 14 }}>ft</span>
+                  <Input
+                    type="number" min="0" max="11"
+                    autoComplete="off" data-lpignore="true"
+                    value={open?.tempUser?.heightIn ?? ""}
+                    onChange={(e) => {
+                      const inches = e.target.value === "" ? "" : parseInt(e.target.value, 10);
+                      const total = ((parseInt(open?.tempUser?.heightFt ?? 0, 10) || 0) * 12) + (inches === "" ? 0 : inches);
+                      setOpen({ ...open, tempUser: { ...open.tempUser, heightIn: inches, heightInches: inches === "" && !open?.tempUser?.heightFt ? null : total } });
+                    }}
+                    placeholder="in"
+                    style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent', width: 48 }}
+                  />
+                  <span style={{ color: '#9ca3af', fontSize: 14 }}>in</span>
+                </div>
+              </fieldset>
+              {/* Sex — used for demographic health comparisons */}
+              <fieldset className="notched-field">
+                <legend className="notched-label">Sex</legend>
+                <select
+                  value={open?.tempUser?.sex ?? ""}
+                  onChange={(e) => setOpen({ ...open, tempUser: { ...open.tempUser, sex: e.target.value } })}
+                  style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent', width: '100%', fontSize: 'inherit', fontFamily: 'inherit', color: open?.tempUser?.sex ? 'inherit' : '#9ca3af' }}
+                >
+                  <option value="">Prefer not to say</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9ca3af' }}>Used to compare your results with similar demographics.</p>
+              </fieldset>
+              <fieldset className="notched-field">
+                <legend className="notched-label">Home zip code</legend>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={10}
+                  autoComplete="postal-code"
+                  data-lpignore="true"
+                  value={open?.tempUser?.zipCode ?? ""}
+                  onChange={(e) => setOpen({ ...open, tempUser: { ...open.tempUser, zipCode: e.target.value } })}
+                  style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent' }}
+                />
+              </fieldset>
             </div>
 
             <DialogFooter style={{ justifyContent: 'center', marginTop: 0, padding: '16px 24px 20px' }}>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => {
+              <Button onClick={async () => {
                 const next = { ...(open?.tempUser ?? user) };
+
+                // If the user picked a new photo, upload it to S3 first
+                if (open._photoFile) {
+                  try {
+                    next.photo = await uploadPhoto(open._photoFile, authToken);
+                  } catch (err) {
+                    console.warn("Photo upload failed, saving without photo change:", err);
+                    next.photo = user.photo ?? null; // keep old photo on failure
+                  }
+                } else if (next.photo?.startsWith("blob:")) {
+                  // Stale blob URL (shouldn't happen, but guard it)
+                  next.photo = user.photo ?? null;
+                }
+
                 setUser(next);
                 try { localStorage.setItem('user', JSON.stringify(next)); } catch { }
+                // Persist to backend (fire-and-forget — UI doesn't wait)
+                saveProfileToBackend(authToken, {
+                  firstName:    next.firstName,
+                  lastName:     next.lastName,
+                  dob:          next.dob          ?? null,
+                  photo:        next.photo        ?? null,
+                  heightInches: next.heightInches ?? null,
+                  sex:          next.sex          ?? null,
+                  zipCode:      next.zipCode      ?? null,
+                  referenceUrl: next.referenceUrl ?? null,
+                }).catch(err => console.warn("Profile save to backend failed:", err));
                 setOpen(null);
               }}>Save</Button>
             </DialogFooter>

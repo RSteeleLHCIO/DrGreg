@@ -1,6 +1,6 @@
-DrGreg (preview)
+TobbiHealth (preview)
 
-This repository contains a small Vite + React preview created to run the original DrGreg UI locally.
+This repository contains a small Vite + React preview created to run the original TobbiHealth UI locally.
 
 Quick start
 

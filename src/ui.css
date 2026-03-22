@@ -1,4 +1,4 @@
-/* Minimal UI for the DrGreg preview */
+/* Minimal UI for the TobbiHealth preview */
 
 :root {
     --bg: #ffffff;
@@ -924,6 +924,9 @@ input[type="time"].no-native-picker {
     overflow: hidden;
     min-width: 320px;
     max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 80px);
 }
 
 /* neutralise generic dialog-content > div side margins */
@@ -1016,6 +1019,9 @@ input[type="time"].no-native-picker {
     padding: 20px 24px 4px;
     display: grid;
     gap: 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
 }
 
 .profile-field-group {
@@ -1064,4 +1070,252 @@ input[type="time"].no-native-picker {
 .notched-dob-btn:hover {
     background: rgba(22, 163, 74, 0.08) !important;
     color: #16a34a !important;
+}
+
+/* ── Login Screen ──────────────────────────────────────── */
+
+.login-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: #f0fdf4;
+    z-index: 200;
+}
+
+/* Hero area */
+.login-hero {
+    flex: 0 0 44vh;
+    min-height: 220px;
+    background: linear-gradient(145deg, #0f766e 0%, #16a34a 55%, #4ade80 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Decorative blobs */
+.login-hero::before {
+    content: "";
+    position: absolute;
+    width: 340px;
+    height: 340px;
+    background: rgba(255, 255, 255, 0.09);
+    border-radius: 50%;
+    top: -110px;
+    right: -80px;
+}
+
+.login-hero::after {
+    content: "";
+    position: absolute;
+    width: 220px;
+    height: 220px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 50%;
+    bottom: -60px;
+    left: -50px;
+}
+
+.login-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    color: white;
+    animation: home-header-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    padding: 0 24px;
+}
+
+.login-logo-wrap {
+    width: 68px;
+    height: 68px;
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(255,255,255,0.25);
+}
+
+.login-app-name {
+    font-size: 2.15rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 8px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+}
+
+.login-greeting {
+    font-size: 1.1rem;
+    font-weight: 500;
+    opacity: 0.9;
+    letter-spacing: -0.01em;
+}
+
+/* Card slides up over the hero */
+.login-card {
+    flex: 1;
+    background: white;
+    border-radius: 28px 28px 0 0;
+    margin-top: -24px;
+    padding: 28px 24px 48px;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    animation: login-card-rise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation-delay: 0.12s;
+}
+
+@keyframes login-card-rise {
+    from { opacity: 0; transform: translateY(48px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Sign In / Register pill tabs */
+.login-mode-tabs {
+    display: flex;
+    background: #f3f4f6;
+    border-radius: 14px;
+    padding: 4px;
+    margin-bottom: 24px;
+    gap: 2px;
+}
+
+.login-mode-tab {
+    flex: 1;
+    padding: 11px;
+    border: none;
+    background: transparent;
+    border-radius: 11px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #6b7280;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.login-mode-tab.active {
+    background: white;
+    color: #111827;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* Form area */
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 420px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+/* Override notched-field input width inside login form */
+.login-form .notched-field input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Action button */
+.login-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #16a34a, #0f766e);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 4px 18px rgba(22, 163, 74, 0.38);
+    margin-top: 4px;
+}
+
+.login-btn:hover:not(:disabled) {
+    opacity: 0.93;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(22, 163, 74, 0.44);
+}
+
+.login-btn:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 2px 10px rgba(22, 163, 74, 0.3);
+}
+
+.login-btn:disabled {
+    opacity: 0.72;
+    cursor: default;
+}
+
+.login-btn-arrow {
+    margin-left: auto;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+/* Inline error */
+.login-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    color: #dc2626;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.login-error svg {
+    flex-shrink: 0;
+}
+
+/* Hint text */
+.login-hint {
+    text-align: center;
+    font-size: 13px;
+    color: #9ca3af;
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 8px;
+}
+
+/* Spinner inside button */
+.login-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2.5px solid rgba(255, 255, 255, 0.35);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: login-spin 0.7s linear infinite;
+    flex-shrink: 0;
+    display: inline-block;
+}
+
+/* Profile setup intro text */
+.profile-setup-intro {
+    text-align: center;
+    font-size: 14px;
+    color: #6b7280;
+    margin: 0 0 20px;
+    line-height: 1.55;
+}
+
+@keyframes login-spin {
+    to { transform: rotate(360deg); }
 }
