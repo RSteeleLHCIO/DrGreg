@@ -1,7 +1,7 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera } from "lucide-react";
 
 import {
   Dialog,
@@ -39,6 +39,9 @@ export default function App() {
       services: [],
     };
   });
+
+  // Major section: null = home screen, 'my-data', 'my-programs', 'my-circles'
+  const [activeSection, setActiveSection] = useState(null);
 
   const metricConfig = {
     weight: { title: "Weight", kind: "singleValue", uom: "lbs" },
@@ -327,18 +330,20 @@ export default function App() {
     day: "numeric",
   });
 
-  // Current date/time label (for left header area)
-  const nowText = useMemo(() =>
-    new Date().toLocaleString(undefined, {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }),
-    []
-  );
+  // Current date/time label (for left header area) — updates every minute
+  const formatNowText = () => new Date().toLocaleString(undefined, {
+    weekday: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const [nowText, setNowText] = useState(formatNowText);
+  useEffect(() => {
+    const id = setInterval(() => setNowText(formatNowText()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -372,17 +377,173 @@ export default function App() {
 
   return (
     <div style={{ padding: 24 }} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      {/* Header / Date Picker */}
-      {/* Get greeting based on time of day */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", marginBottom: 8 }}>
-        {/* Left: greeting + current date/time */}
-        <div style={{ justifySelf: "start" }}>
-          <h1 style={{ fontSize: 30, fontWeight: 700, margin: "0 0 2px 0" }}>{getGreeting()}, {user.firstName}</h1>
-          <div className="header-date">{nowText}</div>
-        </div>
 
-        {/* Right: actions */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", justifySelf: "end" }}>
+      {/* Settings menu popup — rendered at top level so it works from any section */}
+      {showSettingsMenu && (
+        <>
+          <div
+            className="calendar-popup-overlay"
+            onClick={() => setShowSettingsMenu(false)}
+          />
+          <div className="settings-menu-popup">
+            <div className="settings-menu-header">Settings</div>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "profile", tempUser: { ...user } });
+              }}
+            >
+              <User size={18} />
+              <span>About Me</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "services", tempUser: { ...user } });
+              }}
+            >
+              <Link size={18} />
+              <span>Connected Services</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "configure", tempActive: [...activeCards], tempFlags: { ...featureFlags } });
+              }}
+            >
+              <SlidersHorizontal size={18} />
+              <span>Customize Dashboard</span>
+            </button>
+            <div className="settings-menu-divider" />
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "import" });
+              }}
+            >
+              <Upload size={18} />
+              <span>Import Data</span>
+            </button>
+            <button
+              className="settings-menu-item"
+              onClick={() => {
+                setShowSettingsMenu(false);
+                setOpen({ type: "export" });
+              }}
+            >
+              <Download size={18} />
+              <span>Export Data</span>
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ===== HOME SCREEN ===== */}
+      {activeSection === null && (
+        <div className="home-wrapper">
+          <div className="home-header">
+            <div style={{ flex: 1 }}>
+              <h1 style={{ fontSize: 30, fontWeight: 700, margin: "0 0 2px 0" }}>{getGreeting()}, {user.firstName}!</h1>
+              <div className="header-date">{nowText}</div>
+            </div>
+            <button
+              ref={settingsButtonRef}
+              className={user.photo ? "home-settings-btn home-settings-btn--avatar" : "btn-icon home-settings-btn"}
+              aria-label="Settings menu"
+              title="Settings"
+              onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+            >
+              {user.photo ? (
+                <>
+                  <img src={user.photo} alt="Profile" className="home-settings-avatar-img" />
+                  <span className="home-settings-gear"><Settings size={12} /></span>
+                </>
+              ) : (
+                <Settings />
+              )}
+            </button>
+          </div>
+          <div className="home-grid">
+            <div className="home-panel home-panel--data" onClick={() => setActiveSection('my-data')}>
+              <div>
+                <div className="home-panel-icon-wrap"><Activity size={52} strokeWidth={1.5} /></div>
+                <div className="home-panel-title">My Data</div>
+                <div className="home-panel-desc">Track your vitals, medications, and daily health metrics. Log readings and view trends over time.</div>
+              </div>
+              <div className="home-panel-cta">Open →</div>
+            </div>
+            <div className="home-panel home-panel--programs" onClick={() => setActiveSection('my-programs')}>
+              <div>
+                <div className="home-panel-icon-wrap"><Target size={44} strokeWidth={1.5} /></div>
+                <div className="home-panel-title">My Programs</div>
+                <div className="home-panel-desc">Follow personalized health plans and structured wellness routines.</div>
+              </div>
+              <div className="home-panel-badge">Coming Soon</div>
+            </div>
+            <div className="home-panel home-panel--circles" onClick={() => setActiveSection('my-circles')}>
+              <div>
+                <div className="home-panel-icon-wrap"><Users size={44} strokeWidth={1.5} /></div>
+                <div className="home-panel-title">My Circles</div>
+                <div className="home-panel-desc">Connect with your care team, family, and support network.</div>
+              </div>
+              <div className="home-panel-badge">Coming Soon</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MY PROGRAMS placeholder ===== */}
+      {activeSection === 'my-programs' && (
+        <div className="section-placeholder-wrapper">
+          <button className="home-back-btn" onClick={() => setActiveSection(null)}>
+            <Home size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
+          </button>
+          <div className="section-placeholder">
+            <div className="section-placeholder-icon" style={{ background: 'linear-gradient(145deg, #7c3aed, #4f46e5)' }}>
+              <Target size={40} strokeWidth={1.5} color="white" />
+            </div>
+            <h2 className="section-placeholder-title">My Programs</h2>
+            <p className="section-placeholder-desc">Personalized health plans and structured wellness routines are on their way.</p>
+            <span className="section-placeholder-badge">Coming Soon</span>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MY CIRCLES placeholder ===== */}
+      {activeSection === 'my-circles' && (
+        <div className="section-placeholder-wrapper">
+          <button className="home-back-btn" onClick={() => setActiveSection(null)}>
+            <Home size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
+          </button>
+          <div className="section-placeholder">
+            <div className="section-placeholder-icon" style={{ background: 'linear-gradient(145deg, #0284c7, #2563eb)' }}>
+              <Users size={40} strokeWidth={1.5} color="white" />
+            </div>
+            <h2 className="section-placeholder-title">My Circles</h2>
+            <p className="section-placeholder-desc">Connect with your care team, family, and support network — coming soon.</p>
+            <span className="section-placeholder-badge">Coming Soon</span>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MY DATA section ===== */}
+      {activeSection === 'my-data' && (
+        <div className="mydata-wrapper">
+          {/* Hero banner */}
+          <div className="mydata-hero">
+            <div className="mydata-hero-left">
+              <button className="home-back-btn home-back-btn--light" onClick={() => setActiveSection(null)}>
+                <Home size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
+              </button>
+              <div className="mydata-hero-title">My Data</div>
+              <div className="mydata-hero-sub">{getGreeting()}, {user.firstName} &middot; {nowText}</div>
+            </div>
+            {/* Action toolbar */}
+            <div className="mydata-hero-actions">
           {/* icon-only date picker (restored to header right) */}
           <Button
             variant="outline"
@@ -437,83 +598,9 @@ export default function App() {
           >
             <Clock />
           </Button>
-          {/* vertical separator between mode buttons and settings */}
-          <div className="actions-sep" />
-          {/* settings menu button */}
-          <Button
-            ref={settingsButtonRef}
-            variant="outline"
-            className="btn-icon"
-            aria-label="Settings menu"
-            onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-          >
-            <Settings />
-          </Button>
-          {/* swipe left/right on the screen to change dates */}
-        </div>
-      </div>
-
-      {/* Settings menu popup */}
-      {showSettingsMenu && (
-        <>
-          <div
-            className="calendar-popup-overlay"
-            onClick={() => setShowSettingsMenu(false)}
-          />
-          <div className="settings-menu-popup">
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "profile", tempUser: { ...user } });
-              }}
-            >
-              <User size={18} />
-              <span>Profile</span>
-            </button>
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "services", tempUser: { ...user } });
-              }}
-            >
-              <Link size={18} />
-              <span>Connected Services</span>
-            </button>
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "configure", tempActive: [...activeCards], tempFlags: { ...featureFlags } });
-              }}
-            >
-              <SlidersHorizontal size={18} />
-              <span>Customize Dashboard</span>
-            </button>
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "import" });
-              }}
-            >
-              <Upload size={18} />
-              <span>Import Data</span>
-            </button>
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "export" });
-              }}
-            >
-              <Download size={18} />
-              <span>Export Data</span>
-            </button>
+              {/* swipe left/right on the screen to change dates */}
+            </div>
           </div>
-        </>
-      )}
 
       {/* Calendar popup */}
       {showCalendarPopup && viewMode === 'day' && (
@@ -539,29 +626,23 @@ export default function App() {
         </>
       )}
 
-      {/* Centered header label */}
-      <div style={{ textAlign: 'center', fontSize: 22, fontWeight: 600, margin: '24px 0 20px' }}>
-        {viewMode === 'day' && (
-          <span>Data for {niceDate}</span>
-        )}
-        {viewMode === 'metric-history' && (
-          <span>History: {metricConfig[historyMetric]?.title || toSentenceCase(historyMetric)}</span>
-        )}
-        {viewMode === 'latest' && (
-          <span>Most recent entries</span>
-        )}
+      {/* View label */}
+      <div className="mydata-view-label">
+        {viewMode === 'day' && <span>Data for {niceDate}</span>}
+        {viewMode === 'metric-history' && <span>History: {metricConfig[historyMetric]?.title || toSentenceCase(historyMetric)}</span>}
+        {viewMode === 'latest' && <span>Most recent entries</span>}
       </div>
 
       {/* Main content */}
       {viewMode !== 'metric-history' ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 320px))", gap: 12, justifyContent: "center" }}>
+        <div className="mydata-cards-grid">
           {(() => {
             const points = records.dataPoints ?? {};
             // Render only active cards, in the chosen order
             return activeCards
               .map((name) => cardDefinitions.find((c) => c.cardName === name))
               .filter(Boolean)
-              .map((meta) => {
+              .map((meta, cardIdx) => {
                 // Gather values for all metrics in this card
                 const metricValues = meta.metricNames.map(metricName => {
                   const config = metricConfig[metricName];
@@ -651,7 +732,7 @@ export default function App() {
                 const sources = [...new Set(metricValues.map(mv => mv.source).filter(s => s && s !== "manual entry"))];
 
                 return (
-                  <Card key={meta.cardName}>
+                  <Card key={meta.cardName} className="mydata-card" style={{ animationDelay: `${cardIdx * 0.06}s` }}>
                     <CardContent>
                       <div
                         onClick={() => {
@@ -920,6 +1001,8 @@ export default function App() {
           })()}
         </div>
       )}
+      </div>
+      )}
 
       {/* Dialogs */}
       <Dialog open={open !== null} onOpenChange={() => setOpen(null)}>
@@ -1101,13 +1184,53 @@ export default function App() {
 
         {/* Profile: Edit user information */}
         {open?.type === "profile" && (
-          <DialogContent>
-            <DialogHeader style={{ textAlign: "center", marginBottom: 16 }}>
-              <DialogTitle>Profile</DialogTitle>
-            </DialogHeader>
-            <div style={{ display: 'grid', gap: 12, minWidth: 280 }}>
-              <div>
-                <Label htmlFor="firstName">First name</Label>
+          <DialogContent className="profile-dialog-content">
+            {/* Gradient hero header with avatar */}
+            <div className="profile-hero">
+              <div className="profile-avatar-wrap">
+                {open?.tempUser?.photo
+                  ? <img className="profile-avatar-img" src={open.tempUser.photo} alt="Profile photo" />
+                  : (
+                    <div className="profile-avatar-initials">
+                      {(open?.tempUser?.firstName?.[0] ?? '?').toUpperCase()}{(open?.tempUser?.lastName?.[0] ?? '').toUpperCase()}
+                    </div>
+                  )
+                }
+                <button
+                  className="profile-avatar-upload-btn"
+                  aria-label="Upload photo"
+                  onClick={() => document.getElementById('profile-photo-input').click()}
+                >
+                  <Camera size={16} />
+                </button>
+                <input
+                  id="profile-photo-input"
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      setOpen({ ...open, tempUser: { ...open.tempUser, photo: ev.target.result } });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </div>
+              <div className="profile-hero-name">
+                {(open?.tempUser?.firstName || open?.tempUser?.lastName)
+                  ? `${open?.tempUser?.firstName ?? ''} ${open?.tempUser?.lastName ?? ''}`.trim()
+                  : 'My Profile'}
+              </div>
+              <div className="profile-hero-subtitle">Personal Profile</div>
+            </div>
+
+            {/* Form fields */}
+            <div className="profile-form-fields">
+              <fieldset className="notched-field">
+                <legend className="notched-label">First name</legend>
                 <Input
                   id="firstName"
                   type="text"
@@ -1115,10 +1238,11 @@ export default function App() {
                   data-lpignore="true"
                   value={open?.tempUser?.firstName ?? ""}
                   onChange={(e) => setOpen({ ...open, tempUser: { ...open.tempUser, firstName: e.target.value } })}
+                  style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent' }}
                 />
-              </div>
-              <div>
-                <Label htmlFor="lastName">Last name</Label>
+              </fieldset>
+              <fieldset className="notched-field">
+                <legend className="notched-label">Last name</legend>
                 <Input
                   id="lastName"
                   type="text"
@@ -1126,22 +1250,22 @@ export default function App() {
                   data-lpignore="true"
                   value={open?.tempUser?.lastName ?? ""}
                   onChange={(e) => setOpen({ ...open, tempUser: { ...open.tempUser, lastName: e.target.value } })}
+                  style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent' }}
                 />
-              </div>
-              <div>
-                <Label htmlFor="dob">Date of birth</Label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              </fieldset>
+              <fieldset className="notched-field">
+                <legend className="notched-label">Date of birth</legend>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Button
                     type="button"
                     variant="outline"
-                    className="btn-icon"
+                    className="btn-icon notched-dob-btn"
                     aria-label="Select date of birth"
                     data-lpignore="true"
                     onClick={() => {
                       const el = document.getElementById('dob');
                       if (el) {
                         if (typeof el.showPicker === 'function') {
-                          // @ts-ignore - showPicker is not in older TS DOM libs
                           el.showPicker();
                         } else {
                           el.focus();
@@ -1159,11 +1283,13 @@ export default function App() {
                     className="no-native-picker"
                     value={open?.tempUser?.dob ?? ""}
                     onChange={(e) => setOpen({ ...open, tempUser: { ...open.tempUser, dob: e.target.value } })}
+                    style={{ border: 'none', outline: 'none', boxShadow: 'none', padding: '2px 0 4px', background: 'transparent', flex: 1 }}
                   />
                 </div>
-              </div>
+              </fieldset>
             </div>
-            <DialogFooter style={{ justifyContent: 'center', marginTop: 28 }}>
+
+            <DialogFooter style={{ justifyContent: 'center', marginTop: 0, padding: '16px 24px 20px' }}>
               <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
               <Button onClick={() => {
                 const next = { ...(open?.tempUser ?? user) };
