@@ -322,7 +322,14 @@ Weight reading at 2025-11-01 07:31 UTC:
   "metricId":    "weight",
   "isActive":    true,
   "subscribedAt": "2026-03-23T10:00:00.000Z",
-  "updatedAt":   "2026-03-23T10:00:00.000Z"
+  "updatedAt":   "2026-03-23T10:00:00.000Z",
+  "currentDailyStreak":      5,
+  "maxDailyStreak":          12,
+  "currentDailyStreakStart": "2026-03-19",
+  "currentWeeklyStreak":     3,
+  "maxWeeklyStreak":         8,
+  "lastEntryDate":           "2026-03-24",
+  "lastEntryWeek":           "2026-W12"
 }
 ```
 
@@ -334,6 +341,18 @@ Weight reading at 2025-11-01 07:31 UTC:
 | Inactive | ✅ | `false` | Hidden from dashboard; appears in catalog as "Re-activate" |
 | Unsubscribed | ❌ (deleted) | — | Record removed; treated as "Never subscribed" |
 
+**Streak fields** (updated server-side on every `PUT /entry`; returned by `GET /subscriptions`):
+| Field | Type | Description |
+|-------|------|-------------|
+| `currentDailyStreak` | number | Consecutive calendar days with ≥1 entry |
+| `maxDailyStreak` | number | All-time daily-streak record |
+| `currentDailyStreakStart` | string (`YYYY-MM-DD`) | When the current daily run began |
+| `currentWeeklyStreak` | number | Consecutive ISO weeks with ≥1 entry |
+| `maxWeeklyStreak` | number | All-time weekly-streak record |
+| `lastEntryDate` | string (`YYYY-MM-DD`) | Last day an entry was saved |
+| `lastEntryWeek` | string (`YYYY-Www`) | Last ISO week an entry was saved |
+
+> Streak is **not** recalculated on DELETE — that would require a full history scan.
 > `subscribedAt` is preserved across deactivate/re-activate cycles (set via `if_not_exists`).
 > `displayOrder` is a reserved optional field for future card reordering.
 > The inverted GSI-2 (see §4.4) answers "who is subscribed to this metric?".  
@@ -368,6 +387,9 @@ Weight reading at 2025-11-01 07:31 UTC:
 | 21 | Get catalog (available + re-activatable metrics) | `Scan` definitions; exclude `isActive=true` subs; flag `isActive=false` subs as `reactivate: true` |
 | 22 | Get a single metric definition | `GetItem` PK=`METRIC#<metricId>` SK=`#DEF` |
 | 23 | Seed / update a system metric definition | `PutItem` with `createdBy = "SYSTEM"`, `isPublic = true` |
+| 24 | Save a metric entry + update streak | `PutItem` MetricEntry + `UpdateItem` MetricSubscription (streak fields) |
+| 25 | Get metric entries for a date range (all metrics) | Parallel `Query` per metric-partition: PK=`USER#<id>#METRIC#<name>`, SK `BETWEEN TS#<from> AND TS#<to>` |
+| 26 | Delete a single metric entry | `DeleteItem` PK=`USER#<id>#METRIC#<name>` SK=`TS#<ts>` (no streak recalculation) |
 
 ---
 

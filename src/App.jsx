@@ -60,6 +60,33 @@ export default function App() {
     // Hydrate metricConfig with full definitions (including logicalMin/logicalMax)
     // from the backend, regardless of what's in localStorage.
     fetchAndApplySubscriptions(token);
+    // Load the most recent 7 days of entry data.
+    fetchAndApplyEntries(token);
+  }
+
+  async function fetchAndApplyEntries(token) {
+    try {
+      const to   = Date.now();
+      const from = to - 7 * 24 * 60 * 60 * 1000;
+      const res  = await fetch(`${API}/entries?from=${from}&to=${to}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const { entries } = await res.json();
+      if (!entries || !Object.keys(entries).length) return;
+
+      const dataPoints = {};
+      for (const [metric, arr] of Object.entries(entries)) {
+        if (!Array.isArray(arr) || !arr.length) continue;
+        const sorted = [...arr].sort((a, b) => a.ts - b.ts);
+        const dayValue = {};
+        sorted.forEach(e => { dayValue[String(e.ts)] = { value: e.value, updatedAt: e.updatedAt, source: e.source }; });
+        dataPoints[metric] = { entries: sorted, dayValue };
+      }
+      setRecords({ dataPoints });
+    } catch {
+      // Silently ignore — UI remains with whatever is in memory.
+    }
   }
 
   async function fetchAndApplySubscriptions(token) {
@@ -71,12 +98,10 @@ export default function App() {
       const { subscriptions } = await res.json();
       if (!subscriptions?.length) return;
 
-      const BUILTIN_IDS = new Set(['weight','pain','back','headache','tired','temperature','heart','systolic','diastolic','glucose','tylenol','losartan']);
       const configUpdates = {};
       const cardUpdates = [];
 
       for (const def of subscriptions) {
-        if (BUILTIN_IDS.has(def.metricId)) continue;
         const kind = def.valueType === 'boolean' ? 'switch'
                    : (def.valueType === 'numeric' && def.sliderEnabled) ? 'slider'
                    : 'singleValue';
@@ -97,18 +122,16 @@ export default function App() {
         });
       }
 
-      if (!Object.keys(configUpdates).length) return;
-
-      setMetricConfig(prev => ({ ...prev, ...configUpdates }));
-      setCardDefinitions(prev => {
-        const unchanged = prev.filter(c => !configUpdates[c.cardName]);
-        return [...unchanged, ...cardUpdates];
+      setMetricConfig(configUpdates);
+      setCardDefinitions(cardUpdates);
+      const newIds = cardUpdates.map(c => c.cardName);
+      setActiveCards(prev => {
+        const preserved = prev.filter(id => newIds.includes(id));
+        const added = newIds.filter(id => !prev.includes(id));
+        const next = [...preserved, ...added];
+        try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
+        return next;
       });
-      // Keep localStorage in sync so the next cold-load has the correct ranges.
-      try {
-        const stored = JSON.parse(localStorage.getItem('customMetrics') || '{}');
-        localStorage.setItem('customMetrics', JSON.stringify({ ...stored, ...configUpdates }));
-      } catch {}
     } catch {
       // Silently ignore — localStorage remains the fallback.
     }
@@ -165,11 +188,7 @@ export default function App() {
     fetchAndApplyProfile(token);
   }
 
-  /* --- Static metric definitions --
-      This will be loaded from a config file or API
-      They are the standard data points across all users
-  */
-  // User account info (would be loaded from a user table/service)
+  // User profile — loaded from the backend on login; cached in localStorage between sessions.
   const [user, setUser] = useState(() => {
     try {
       const raw = localStorage.getItem("user");
@@ -179,10 +198,9 @@ export default function App() {
       }
     } catch { }
     return {
-      firstName: "Ray",
-      lastName: "Steele",
-      // Store DOB as ISO date string for easy binding to <input type="date">
-      dob: "1959-10-21",
+      firstName: "",
+      lastName: "",
+      dob: "",
       services: [],
     };
   });
@@ -190,225 +208,106 @@ export default function App() {
   // Major section: null = home screen, 'my-data', 'my-programs', 'my-circles'
   const [activeSection, setActiveSection] = useState(null);
 
-  const [metricConfig, setMetricConfig] = useState(() => {
-    const base = {
-      weight:      { title: "Weight",         kind: "singleValue", uom: "lbs" },
-      pain:        { title: "Pain",           kind: "slider",      uom: "", prompt: "How bad is your pain today?",        logicalMin: 0, logicalMax: 10 },
-      back:        { title: "Back Pain",      kind: "slider",      uom: "", prompt: "How bad is your back pain today?",   logicalMin: 0, logicalMax: 10 },
-      headache:    { title: "Headache",       kind: "slider",      uom: "", prompt: "How bad is your headache today?",   logicalMin: 0, logicalMax: 10 },
-      tired:       { title: "Tiredness",      kind: "slider",      uom: "", prompt: "How tired do you feel today?",      logicalMin: 0, logicalMax: 10 },
-      temperature: { title: "Temperature",    kind: "singleValue", uom: "\u00b0F" },
-      heart:       { title: "Heart Rate",     kind: "singleValue", uom: "bpm",   prompt: "What is your Heart Rate (beats per minute)?" },
-      systolic:    { title: "BP - Systolic",  kind: "singleValue", uom: "" },
-      diastolic:   { title: "BP - Diastolic", kind: "singleValue", uom: "" },
-      glucose:     { title: "Blood Glucose",  kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
-      tylenol:     { title: "Rx - Tylenol",   kind: "switch",      uom: "", prompt: "Did you take Tylenol within the last 4 hours?" },
-      losartan:    { title: "Rx - Losartan",  kind: "switch",      uom: "", prompt: "Did you take Losartan today?" },
-    };
-    try {
-      const raw = localStorage.getItem('customMetrics');
-      if (raw) return { ...base, ...JSON.parse(raw) };
-    } catch {}
-    return base;
-  });
+  // metricConfig is populated entirely from the backend via fetchAndApplySubscriptions.
+  const [metricConfig, setMetricConfig] = useState({});
 
-  /* --- Card definitions and active Cards ---
-      Card Definitions (what each card contains)
-      There will be a catalog of possible cards available in a database or API
-      (for now, hardcode them here)
-
-      Active Cards (which cards the specific user has chosen to show and in what order)
-      A User's account will determine which cards are active
-      In the app, a user can customize which cards are shown on their dashboard
-      (e.g. by dragging and dropping them)
-      When a user makes changes to their dashboard, those changes are saved to their account.
-
-      If you have shared your account with a clinician, they may access your account to enable certain cards on your behalf 
-      (how? via a shared link or direct access?) 
-
-      Data Points (the actual values recorded for each metric)
-      These will be loaded from a database or API
-      Each User/Metric will have a time series of recorded values
-      (for now, hardcode some sample data)
-  */
-  const [cardDefinitions, setCardDefinitions] = useState(() => { const base = [
-    {
-      cardName: "weight",
-      title: "Weight",
-      icon: Activity,
-      metricNames: ["weight"]
-    },
-    {
-      cardName: "symptoms",
-      title: "Symptoms",
-      icon: Activity,
-      metricNames: ["pain", "temperature", "tylenol"]
-    },
-    {
-      cardName: "heart",
-      title: "Heart Rate",
-      icon: Heart,
-      metricNames: ["heart"]
-    },
-    {
-      cardName: "temperature",
-      title: "Temperature",
-      icon: Thermometer,
-      metricNames: ["temperature"]
-    },
-    {
-      cardName: "blood-pressure",
-      title: "Blood Pressure",
-      icon: Activity,
-      metricNames: ["systolic", "diastolic", "losartan"]
-    },
-    {
-      cardName: "glucose",
-      title: "Glucose",
-      icon: Droplet,
-      metricNames: ["glucose"]
-    },
-    {
-      cardName: "tired",
-      title: "Tired",
-      icon: Moon,
-      color: "#4f46e5",
-      metricNames: ["tired"]
-    },
-    {
-      cardName: "headache",
-      title: "Headache",
-      icon: Brain,
-      color: "#7c3aed",
-      metricNames: ["headache"]
-    },
-    {
-      cardName: "back",
-      title: "Back Ache",
-      icon: Bone,
-      color: "#f59e0b",
-      metricNames: ["back"]
-    },
-    {
-      cardName: "tylenol",
-      title: "Tylenol",
-      icon: Pill,
-      color: "#10b981",
-      metricNames: ["tylenol"]
-    },
-    {
-      cardName: "losartan",
-      title: "Losartan",
-      icon: Pill,
-      color: "#10b981",
-      metricNames: ["losartan"]
-    },
-  ];
-  try {
-    const raw = localStorage.getItem('customMetrics');
-    if (raw) {
-      const customs = JSON.parse(raw);
-      return [...base, ...Object.keys(customs).map(id => ({
-        cardName: id, title: customs[id].title,
-        icon: METRIC_ICONS[customs[id]._icon] ?? Activity,
-        metricNames: [id],
-      }))];
-    }
-  } catch {}
-  return base;
-  });
+  // cardDefinitions is populated entirely from the backend via fetchAndApplySubscriptions.
+  const [cardDefinitions, setCardDefinitions] = useState([]);
 
   const [activeCards, setActiveCards] = useState(() => {
-    // On load, try to get preferred ordered list of active cards from localStorage
-    // If that fails, then read the User's account where we store which cards are active and what order they are in
     try {
       const raw = localStorage.getItem("activeCards");
       if (raw) return JSON.parse(raw);
     } catch { }
-    // Default: everything active in current order
-    return cardDefinitions.map(c => c.cardName);
+    return [];
   });
 
-  const [records, setRecords] = useState(() => {
-    // Helper to build data point structure from entries: [{ts, value, updatedAt, source}]
-    const make = (arr) => {
-      const dayValue = {};
-      arr.forEach((e) => { dayValue[String(e.ts)] = { value: e.value, updatedAt: e.updatedAt, source: e.source }; });
-      return { entries: arr, dayValue };
-    };
-    return {
-      dataPoints: {
-        // Weight: one reading per morning across days
-        weight: make([
-          { ts: new Date("2025-11-01T07:30:00").getTime(), value: 173, updatedAt: new Date("2025-11-01T07:31:00").toISOString(), source: "Fitbit" },
-          { ts: new Date("2025-11-02T07:40:00").getTime(), value: 172.5, updatedAt: new Date("2025-11-02T07:41:00").toISOString(), source: "Withings Scale" },
-        ]),
-        // Heart rate: multiple readings throughout the day
-        heart: make([
-          { ts: new Date("2025-11-01T08:20:00").getTime(), value: 78, updatedAt: new Date("2025-11-01T08:21:00").toISOString(), source: "Apple Health" },
-          { ts: new Date("2025-11-02T08:10:00").getTime(), value: 76, updatedAt: new Date("2025-11-02T08:12:00").toISOString(), source: "Apple Health" },
-          { ts: new Date("2025-11-02T12:05:00").getTime(), value: 82, updatedAt: new Date("2025-11-02T12:06:00").toISOString(), source: "Fitbit" },
-          { ts: new Date("2025-11-02T19:20:00").getTime(), value: 74, updatedAt: new Date("2025-11-02T19:22:00").toISOString(), source: "manual entry" },
-        ]),
-        // Glucose: morning fasting
-        glucose: make([
-          { ts: new Date("2025-11-01T07:45:00").getTime(), value: 110, updatedAt: new Date("2025-11-01T07:46:00").toISOString(), source: "Dexcom" },
-          { ts: new Date("2025-11-02T07:50:00").getTime(), value: 102, updatedAt: new Date("2025-11-02T07:51:00").toISOString(), source: "Dexcom" },
-        ]),
-        // Blood pressure: multiple times per day
-        systolic: make([
-          { ts: new Date("2025-11-01T09:00:00").getTime(), value: 130, updatedAt: new Date("2025-11-01T09:02:00").toISOString(), source: "manual entry" },
-          { ts: new Date("2025-11-02T08:30:00").getTime(), value: 120, updatedAt: new Date("2025-11-02T08:31:00").toISOString(), source: "Omron Connect" },
-          { ts: new Date("2025-11-02T12:30:00").getTime(), value: 126, updatedAt: new Date("2025-11-02T12:31:00").toISOString(), source: "Apple Health" },
-          { ts: new Date("2025-11-02T20:10:00").getTime(), value: 118, updatedAt: new Date("2025-11-02T20:12:00").toISOString(), source: "manual entry" },
-        ]),
-        diastolic: make([
-          { ts: new Date("2025-11-01T09:00:00").getTime(), value: 85, updatedAt: new Date("2025-11-01T09:02:00").toISOString(), source: "manual entry" },
-          { ts: new Date("2025-11-02T08:30:00").getTime(), value: 80, updatedAt: new Date("2025-11-02T08:31:00").toISOString(), source: "Omron Connect" },
-          { ts: new Date("2025-11-02T12:30:00").getTime(), value: 84, updatedAt: new Date("2025-11-02T12:31:00").toISOString(), source: "Apple Health" },
-          { ts: new Date("2025-11-02T20:10:00").getTime(), value: 78, updatedAt: new Date("2025-11-02T20:12:00").toISOString(), source: "manual entry" },
-        ]),
-        // Symptom sliders
-        tired: make([
-          { ts: new Date("2025-11-01T21:00:00").getTime(), value: 6, updatedAt: new Date("2025-11-01T21:01:00").toISOString(), source: "manual entry" },
-          { ts: new Date("2025-11-02T21:05:00").getTime(), value: 5, updatedAt: new Date("2025-11-02T21:06:00").toISOString(), source: "manual entry" },
-        ]),
-        headache: make([
-          { ts: new Date("2025-11-01T16:00:00").getTime(), value: 2, updatedAt: new Date("2025-11-01T16:02:00").toISOString(), source: "manual entry" },
-        ]),
-        back: make([
-          { ts: new Date("2025-11-02T18:30:00").getTime(), value: 3, updatedAt: new Date("2025-11-02T18:31:00").toISOString(), source: "manual entry" },
-        ]),
-        // Medication switches
-        tylenol: make([
-          { ts: new Date("2025-11-02T10:00:00").getTime(), value: true, updatedAt: new Date("2025-11-02T10:01:00").toISOString(), source: "manual entry" },
-        ]),
-        losartan: make([
-          { ts: new Date("2025-11-02T08:00:00").getTime(), value: true, updatedAt: new Date("2025-11-02T08:01:00").toISOString(), source: "manual entry" },
-        ]),
-      },
-    };
-  });
+  // Entry data is loaded from the backend after login via fetchAndApplyEntries().
+  const [records, setRecords] = useState({ dataPoints: {} });
 
   // --- Selected day ----------------------------------------------------------
   const [selectedDate, setSelectedDate] = useState(new Date());
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate]);
   const [showCalendarPopup, setShowCalendarPopup] = useState(false);
+
+  // Track which time window has already been loaded so we only fetch new data
+  // when the user navigates past the currently loaded window.
+  const loadedRangeRef = useRef({ from: Date.now() - 7 * 24 * 60 * 60 * 1000, to: Date.now() });
+
+  // Lazy-load entries when navigating to a date outside the loaded window.
+  useEffect(() => {
+    if (!authToken) return;
+    const selTs = selectedDate.getTime();
+    if (selTs >= loadedRangeRef.current.from) return; // already loaded
+
+    // The user has navigated before the loaded window — fetch that 7-day block.
+    const blockTo   = new Date(selTs); blockTo.setHours(23, 59, 59, 999);
+    const blockFrom = new Date(selTs); blockFrom.setDate(blockFrom.getDate() - 6); blockFrom.setHours(0, 0, 0, 0);
+    const fromTs = blockFrom.getTime();
+    const toTs   = blockTo.getTime();
+
+    // Expand the tracked window immediately to prevent duplicate fetches
+    loadedRangeRef.current.from = Math.min(loadedRangeRef.current.from, fromTs);
+
+    fetch(`${API}/entries?from=${fromTs}&to=${toTs}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(({ entries }) => {
+        if (!entries || !Object.keys(entries).length) return;
+        setRecords(prev => {
+          const updated = { ...prev.dataPoints };
+          for (const [metric, arr] of Object.entries(entries)) {
+            if (!Array.isArray(arr) || !arr.length) continue;
+            const existing  = updated[metric] ?? { entries: [], dayValue: {} };
+            const tsSet     = new Set((existing.entries ?? []).map(e => e.ts));
+            const merged    = [...(existing.entries ?? [])];
+            const dv        = { ...(existing.dayValue ?? {}) };
+            for (const e of arr) {
+              if (!tsSet.has(e.ts)) merged.push(e);
+              dv[String(e.ts)] = { value: e.value, updatedAt: e.updatedAt, source: e.source };
+            }
+            merged.sort((a, b) => a.ts - b.ts);
+            updated[metric] = { ...existing, entries: merged, dayValue: dv };
+          }
+          return { ...prev, dataPoints: updated };
+        });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const calendarButtonRef = useRef(null);
   const settingsButtonRef = useRef(null);
 
   // Update metric values in the records (timestamped entries)
   // newData: { metric, inputValue, ts, editTs, source }
-  // In production, this would also update the backend database for this user
   const updateDayValues = (newData) => {
+    const ts     = typeof newData.ts === 'number' ? newData.ts : Date.now();
+    const source = newData.source || 'manual entry';
+
+    // Fire-and-forget backend persistence.
+    if (authToken) {
+      // For edits: delete the old entry then write the new one.
+      if (typeof newData.editTs === 'number' && newData.editTs !== ts) {
+        fetch(`${API}/entry`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ metric: newData.metric, ts: newData.editTs }),
+        }).catch(() => {});
+      }
+      fetch(`${API}/entry`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ metric: newData.metric, ts, value: newData.inputValue, source }),
+      }).catch(() => {});
+    }
+
     setRecords((prev) => {
       const metricKey = newData.metric;
       const dp = prev.dataPoints[metricKey] ?? {};
       let entries = Array.isArray(dp.entries) ? [...dp.entries] : [];
-      const ts = typeof newData.ts === 'number' ? newData.ts : Date.now();
       const updatedAt = new Date().toISOString();
-      const source = newData.source || "manual entry"; // Default to manual entry if not specified
 
       // Also persist into legacy dayValue map but keyed by timestamp (string)
       const dv = { ...(dp.dayValue ?? {}) };
@@ -906,9 +805,20 @@ export default function App() {
             aria-label="Add metric to dashboard"
             title="Add a metric"
             style={{ marginLeft: 8 }}
-            onClick={() => setOpen({ type: 'add-metric', screen: 'catalog',
-              tempDef: { value_type: 'numeric', slider_enabled: false, logical_min: 0, logical_max: 10,
-                icon: 'Activity', false_tag: 'No', true_tag: 'Yes', uom: '', friendly_name: '', info_url: '' } })}
+            onClick={async () => {
+              const tempDef = { value_type: 'numeric', slider_enabled: false, logical_min: 0, logical_max: 10,
+                icon: 'Activity', false_tag: 'No', true_tag: 'Yes', uom: '', friendly_name: '', info_url: '' };
+              setOpen({ type: 'add-metric', screen: 'catalog', catalog: null, tempDef });
+              try {
+                const res = await fetch(`${API}/metrics/catalog`, {
+                  headers: { Authorization: `Bearer ${authToken}` },
+                });
+                if (res.ok) {
+                  const { metrics } = await res.json();
+                  setOpen(prev => prev?.type === 'add-metric' ? { ...prev, catalog: metrics ?? [] } : prev);
+                }
+              } catch {}
+            }}
           >
             <Plus />
           </Button>
@@ -1900,22 +1810,40 @@ export default function App() {
                 <DialogTitle>Add a Metric</DialogTitle>
               </DialogHeader>
               {(() => {
-                const available = cardDefinitions.filter(c => !activeCards.includes(c.cardName));
+                if (open.catalog === null) {
+                  return <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>Loading…</div>;
+                }
+                const available = open.catalog ?? [];
                 return available.length > 0 ? (
                   <ul className="add-metric-list">
-                    {available.map(c => {
-                      const Icon = c.icon ?? Activity;
-                      const color = c.color ?? "#1530E8";
+                    {available.map(m => {
+                      const Icon = METRIC_ICONS[m.icon] ?? Activity;
                       return (
-                        <li key={c.cardName}>
-                          <button className="add-metric-item" onClick={() => {
-                            const next = [...activeCards, c.cardName];
+                        <li key={m.metricId}>
+                          <button className="add-metric-item" onClick={async () => {
+                            try {
+                              const res = await fetch(`${API}/subscription`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                                body: JSON.stringify({ metricId: m.metricId }),
+                              });
+                              if (!res.ok) {
+                                const err = await res.json().catch(() => ({}));
+                                alert(`Could not subscribe: ${err.error || res.status}`);
+                                return;
+                              }
+                            } catch (e) {
+                              alert(`Network error: ${e.message}`);
+                              return;
+                            }
+                            await fetchAndApplySubscriptions(authToken);
+                            const next = [...activeCards, m.metricId];
                             setActiveCards(next);
                             try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
                             setOpen(null);
                           }}>
-                            <Icon size={18} style={{ color, flexShrink: 0 }} />
-                            <span style={{ flex: 1 }}>{c.title}</span>
+                            <Icon size={18} style={{ color: '#1530E8', flexShrink: 0 }} />
+                            <span style={{ flex: 1 }}>{m.friendlyName}{m.reactivate ? ' (re-activate)' : ''}</span>
                             <Plus size={13} style={{ opacity: 0.45 }} />
                           </button>
                         </li>
@@ -1924,7 +1852,7 @@ export default function App() {
                   </ul>
                 ) : (
                   <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>
-                    All catalog metrics are already on your dashboard.
+                    All available metrics are already on your dashboard.
                   </div>
                 );
               })()}

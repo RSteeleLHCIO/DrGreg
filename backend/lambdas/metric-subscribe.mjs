@@ -41,11 +41,12 @@ export const handler = async (event) => {
     "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS",
   };
 
-  if (event.httpMethod === "OPTIONS") {
+  const method = event.httpMethod || event.requestContext?.http?.method;
+
+  if (method === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
 
-  const method = event.httpMethod;
   if (method !== "POST" && method !== "DELETE") {
     return reply(405, { error: "Method not allowed" }, corsHeaders);
   }
@@ -59,6 +60,11 @@ export const handler = async (event) => {
 
     if (!metricId || !/^[a-z0-9-]+$/.test(metricId)) {
       return reply(400, { error: "metricId must be lowercase letters, digits, and hyphens only." }, corsHeaders);
+    }
+
+    const BUILTIN_IDS = new Set(['weight','pain','back','headache','tired','temperature','heart','systolic','diastolic','glucose','tylenol','losartan']);
+    if (BUILTIN_IDS.has(metricId)) {
+      return reply(400, { error: "Built-in metrics cannot be subscribed to." }, corsHeaders);
     }
 
     // ── DELETE: Full unsubscribe — removes the record entirely ───────────

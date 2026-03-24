@@ -77,6 +77,8 @@ Compress-Archive -Force -Path metric-definition-save.mjs, node_modules, package.
 Compress-Archive -Force -Path metric-catalog-get.mjs, node_modules, package.json -DestinationPath metric-catalog-get.zip
 Compress-Archive -Force -Path metric-subscriptions-get.mjs, node_modules, package.json -DestinationPath metric-subscriptions-get.zip
 Compress-Archive -Force -Path metric-subscribe.mjs, node_modules, package.json -DestinationPath metric-subscribe.zip
+Compress-Archive -Force -Path metric-entry.mjs, node_modules, package.json -DestinationPath metric-entry.zip
+Compress-Archive -Force -Path metric-entries-get.mjs, node_modules, package.json -DestinationPath metric-entries-get.zip
 ```
 
 ---
@@ -145,6 +147,9 @@ Each Lambda needs permission to read and write the DynamoDB table.
 | GET  | `/subscriptions`    | `tobbihealth-metric-subscriptions-get` |
 | POST | `/subscription`     | `tobbihealth-metric-subscribe` |
 | DELETE | `/subscription`   | `tobbihealth-metric-subscribe` |
+| PUT  | `/entry`            | `tobbihealth-metric-entry` |
+| DELETE | `/entry`          | `tobbihealth-metric-entry` |
+| GET  | `/entries`          | `tobbihealth-metric-entries-get` |
 
 4. Under **CORS**, set:
    - **Allow origin**: `http://localhost:5173`

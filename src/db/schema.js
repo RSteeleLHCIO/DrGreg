@@ -236,6 +236,16 @@ export const METRIC_SUBSCRIPTION_DEFAULTS = {
   isActive:     true,
   subscribedAt: "",
   updatedAt:    "",
+  // ── Streak tracking ────────────────────────────────────────────────────────
+  // Stored directly on the subscription record so no extra API call is needed
+  // at login — streak data comes back automatically with GET /subscriptions.
+  currentDailyStreak:      0,     // consecutive calendar days with ≥1 entry
+  maxDailyStreak:          0,     // all-time record
+  currentDailyStreakStart: null,  // 'YYYY-MM-DD' when current daily run began
+  currentWeeklyStreak:     0,     // consecutive ISO weeks with ≥1 entry
+  maxWeeklyStreak:         0,     // all-time record
+  lastEntryDate:           null,  // 'YYYY-MM-DD' of last saved entry (used server-side for streak math)
+  lastEntryWeek:           null,  // 'YYYY-Www' (ISO week) of last saved entry
 };
 
 // ─── localStorage key registry ────────────────────────────────────────────────
@@ -245,8 +255,8 @@ export const METRIC_SUBSCRIPTION_DEFAULTS = {
  * Import this instead of hard-coding strings to avoid typo bugs.
  */
 export const LS_KEYS = {
-  USER:         "user",
-  ACTIVE_CARDS: "activeCards",
+  USER:          "user",
+  ACTIVE_CARDS:  "activeCards",
   FEATURE_FLAGS: "featureFlags",
-  RECORDS:      "records",
+  CUSTOM_METRICS: "customMetrics",
 };
