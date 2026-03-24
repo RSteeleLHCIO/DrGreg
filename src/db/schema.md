@@ -157,10 +157,12 @@ Stored as attributes on the User item in DynamoDB.
 
 #### Key patterns by item type
 
-| Item type     | PK                         | SK                              |
-|--------------|----------------------------|---------------------------------|
-| User profile  | `USER#<userId>`            | `#PROFILE`                      |
-| Metric entry  | `USER#<userId>#METRIC#<metricName>` | `TS#<ts_ms_zero_padded>` |
+| Item type             | PK                                        | SK                              |
+|----------------------|-------------------------------------------|---------------------------------|
+| User profile          | `USER#<userId>`                           | `#PROFILE`                      |
+| Metric entry          | `USER#<userId>#METRIC#<metricName>`       | `TS#<ts_ms_zero_padded>`        |
+| Metric definition     | `METRIC#<metricId>`                       | `#DEF`                          |
+| Metric subscription   | `USER#<userId>`                           | `METRIC#<metricId>`             |
 
 **Example keys:**
 
@@ -284,6 +286,59 @@ Weight reading at 2025-11-01 07:31 UTC:
 }
 ```
 
+#### MetricDefinition Item
+
+```json
+{
+  "PK":          "METRIC#weight",
+  "SK":          "#DEF",
+  "itemType":    "MetricDefinition",
+  "metricId":    "weight",
+  "friendlyName": "Weight",
+  "icon":        "Activity",
+  "infoUrl":     "",
+  "valueType":   "numeric",
+  "sliderEnabled": false,
+  "uom":         "lbs",
+  "isPublic":    true,
+  "createdBy":   "SYSTEM",
+  "updatedAt":   "2026-03-23T00:00:00.000Z"
+}
+```
+
+> `isPublic: true` for seed/system metrics; `false` for user-created (personal) metrics.  
+> `createdBy: "SYSTEM"` for seed metrics; `userId` for user-created ones.
+
+---
+
+#### MetricSubscription Item
+
+```json
+{
+  "PK":          "USER#u-7f3a1b2c",
+  "SK":          "METRIC#weight",
+  "itemType":    "MetricSubscription",
+  "userId":      "u-7f3a1b2c",
+  "metricId":    "weight",
+  "isActive":    true,
+  "subscribedAt": "2026-03-23T10:00:00.000Z",
+  "updatedAt":   "2026-03-23T10:00:00.000Z"
+}
+```
+
+**`isActive` states:**
+| State | Record exists? | `isActive` | Meaning |
+|-------|---------------|-----------|--------|
+| Never subscribed | ❌ | — | No record; appears in catalog as "Add" |
+| Active | ✅ | `true` | Shown on dashboard; excluded from catalog |
+| Inactive | ✅ | `false` | Hidden from dashboard; appears in catalog as "Re-activate" |
+| Unsubscribed | ❌ (deleted) | — | Record removed; treated as "Never subscribed" |
+
+> `subscribedAt` is preserved across deactivate/re-activate cycles (set via `if_not_exists`).
+> `displayOrder` is a reserved optional field for future card reordering.
+> The inverted GSI-2 (see §4.4) answers "who is subscribed to this metric?".  
+> `activeCards` array on the user profile is superseded by `isActive` on each subscription record.
+
 ---
 
 ### 4.3 Access Patterns
@@ -304,6 +359,15 @@ Weight reading at 2025-11-01 07:31 UTC:
 | 12 | Update credential counter after login | `PutItem` (overwrite with new counter) |
 | 13 | Store / retrieve pending challenge | `PutItem` / `GetItem` on `PENDING_REG#` or `PENDING_AUTH#` keys |
 | 14 | Clean up expired challenges | Automatic — DynamoDB TTL removes items when `ttl` elapses |
+| 15 | Get all subscribed metrics for a user | `Query` PK=`USER#<id>`, SK `begins_with METRIC#` |
+| 16 | Subscribe a user to a metric (new) | `UpdateItem` with `if_not_exists(subscribedAt)`, `isActive = true` |
+| 17 | Deactivate a subscription (hide from dashboard) | `UpdateItem` PK=`USER#<id>` SK=`METRIC#<id>`, set `isActive = false` |
+| 18 | Re-activate a subscription | `UpdateItem` same keys, set `isActive = true` |
+| 19 | Fully unsubscribe (remove record) | `DeleteItem` PK=`USER#<id>` SK=`METRIC#<metricId>` |
+| 20 | Get all subscribers of a metric | `Query` GSI-2, partition key = `METRIC#<metricId>` |
+| 21 | Get catalog (available + re-activatable metrics) | `Scan` definitions; exclude `isActive=true` subs; flag `isActive=false` subs as `reactivate: true` |
+| 22 | Get a single metric definition | `GetItem` PK=`METRIC#<metricId>` SK=`#DEF` |
+| 23 | Seed / update a system metric definition | `PutItem` with `createdBy = "SYSTEM"`, `isPublic = true` |
 
 ---
 
@@ -319,7 +383,29 @@ Allows querying all metrics for a user in time order (e.g. for export/import).
 | `ts`      | Sort key      |
 
 **Projected attributes:** ALL
+---
 
+#### GSI-2: `metric-subscribers-index` (inverted index)
+
+Answers "which users are subscribed to a given metric?" — used for clinician dashboards,
+analytics, and future metric-push features.
+
+This is the classic **inverted index** pattern: the GSI key attributes are the main
+table's `SK` (as partition key) and `PK` (as sort key).  
+Because `MetricSubscription` items have `SK = "METRIC#<id>"`, querying this GSI with
+`SK = "METRIC#weight"` returns every user who subscribed to weight — without needing
+a separate attribute.
+
+| GSI attribute | Maps to main-table attribute | Role          |
+|--------------|------------------------------|---------------|
+| `SK`          | `SK` (e.g. `"METRIC#weight"`)| Partition key |
+| `PK`          | `PK` (e.g. `"USER#u-..."`)   | Sort key      |
+
+**Projected attributes:** ALL
+
+> Non-subscription items (profiles, credentials, metric entries) land in this GSI too,
+> but their `SK` values (`#PROFILE`, `CRED#…`, `TS#…`, `#DEF`) will never be queried
+> so they are harmless phantom entries.
 ---
 
 ## 5. Migration Path

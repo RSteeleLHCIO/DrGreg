@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut, MoreVertical } from "lucide-react";
 
 import {
   Dialog,
@@ -17,6 +17,13 @@ import { Calendar } from "./components/ui/calendar";
 import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
+
+// Icon map for custom metric definitions (icon name → component)
+const METRIC_ICONS = { Activity, Heart, Droplet, Gauge, Moon, Brain, Bone, Thermometer, Pill, Target, Clock, User };
+
+function slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '';
+}
 
 export default function App() {
 
@@ -49,6 +56,61 @@ export default function App() {
     } catch {
       // Network error — fall back to whatever is in localStorage
       setProfileReady("ready");
+    }
+    // Hydrate metricConfig with full definitions (including logicalMin/logicalMax)
+    // from the backend, regardless of what's in localStorage.
+    fetchAndApplySubscriptions(token);
+  }
+
+  async function fetchAndApplySubscriptions(token) {
+    try {
+      const res = await fetch(`${API}/subscriptions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const { subscriptions } = await res.json();
+      if (!subscriptions?.length) return;
+
+      const BUILTIN_IDS = new Set(['weight','pain','back','headache','tired','temperature','heart','systolic','diastolic','glucose','tylenol','losartan']);
+      const configUpdates = {};
+      const cardUpdates = [];
+
+      for (const def of subscriptions) {
+        if (BUILTIN_IDS.has(def.metricId)) continue;
+        const kind = def.valueType === 'boolean' ? 'switch'
+                   : (def.valueType === 'numeric' && def.sliderEnabled) ? 'slider'
+                   : 'singleValue';
+        configUpdates[def.metricId] = {
+          title: def.friendlyName,
+          kind,
+          uom: def.uom || '',
+          _icon: def.icon || 'Activity',
+          ...(def.infoUrl ? { infoUrl: def.infoUrl } : {}),
+          ...(kind === 'slider' ? { logicalMin: def.logicalMin ?? 0, logicalMax: def.logicalMax ?? 10 } : {}),
+          ...(kind === 'switch' ? { falseTag: def.falseTag || 'No', trueTag: def.trueTag || 'Yes' } : {}),
+        };
+        cardUpdates.push({
+          cardName: def.metricId,
+          title: def.friendlyName,
+          icon: METRIC_ICONS[def.icon] ?? Activity,
+          metricNames: [def.metricId],
+        });
+      }
+
+      if (!Object.keys(configUpdates).length) return;
+
+      setMetricConfig(prev => ({ ...prev, ...configUpdates }));
+      setCardDefinitions(prev => {
+        const unchanged = prev.filter(c => !configUpdates[c.cardName]);
+        return [...unchanged, ...cardUpdates];
+      });
+      // Keep localStorage in sync so the next cold-load has the correct ranges.
+      try {
+        const stored = JSON.parse(localStorage.getItem('customMetrics') || '{}');
+        localStorage.setItem('customMetrics', JSON.stringify({ ...stored, ...configUpdates }));
+      } catch {}
+    } catch {
+      // Silently ignore — localStorage remains the fallback.
     }
   }
 
@@ -128,20 +190,27 @@ export default function App() {
   // Major section: null = home screen, 'my-data', 'my-programs', 'my-circles'
   const [activeSection, setActiveSection] = useState(null);
 
-  const metricConfig = {
-    weight: { title: "Weight", kind: "singleValue", uom: "lbs" },
-    pain: { title: "Pain", kind: "slider", uom: "", prompt: "How bad is your pain today?" },
-    back: { title: "Back Pain", kind: "slider", uom: "", prompt: "How bad is your back pain today?" },
-    headache: { title: "Headache", kind: "slider", uom: "", prompt: "How bad is your headache today?" },
-    tired: { title: "Tiredness", kind: "slider", uom: "", prompt: "How tired do you feel today?" },
-    temperature: { title: "Temperature", kind: "singleValue", uom: "°F" },
-    heart: { title: "Heart Rate", kind: "singleValue", uom: "bpm", prompt: "What is your Heart Rate (beats per minute)?" },
-    systolic: { title: "BP - Systolic", kind: "singleValue", uom: "" },
-    diastolic: { title: "BP - Diastolic", kind: "singleValue", uom: "" },
-    glucose: { title: "Blood Glucose", kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
-    tylenol: { title: "Rx - Tylenol", kind: "switch", uom: "", prompt: "Did you take Tylenol within the last 4 hours?" },
-    losartan: { title: "Rx - Losartan", kind: "switch", uom: "", prompt: "Did you take Losartan today?" }
-  };
+  const [metricConfig, setMetricConfig] = useState(() => {
+    const base = {
+      weight:      { title: "Weight",         kind: "singleValue", uom: "lbs" },
+      pain:        { title: "Pain",           kind: "slider",      uom: "", prompt: "How bad is your pain today?",        logicalMin: 0, logicalMax: 10 },
+      back:        { title: "Back Pain",      kind: "slider",      uom: "", prompt: "How bad is your back pain today?",   logicalMin: 0, logicalMax: 10 },
+      headache:    { title: "Headache",       kind: "slider",      uom: "", prompt: "How bad is your headache today?",   logicalMin: 0, logicalMax: 10 },
+      tired:       { title: "Tiredness",      kind: "slider",      uom: "", prompt: "How tired do you feel today?",      logicalMin: 0, logicalMax: 10 },
+      temperature: { title: "Temperature",    kind: "singleValue", uom: "\u00b0F" },
+      heart:       { title: "Heart Rate",     kind: "singleValue", uom: "bpm",   prompt: "What is your Heart Rate (beats per minute)?" },
+      systolic:    { title: "BP - Systolic",  kind: "singleValue", uom: "" },
+      diastolic:   { title: "BP - Diastolic", kind: "singleValue", uom: "" },
+      glucose:     { title: "Blood Glucose",  kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
+      tylenol:     { title: "Rx - Tylenol",   kind: "switch",      uom: "", prompt: "Did you take Tylenol within the last 4 hours?" },
+      losartan:    { title: "Rx - Losartan",  kind: "switch",      uom: "", prompt: "Did you take Losartan today?" },
+    };
+    try {
+      const raw = localStorage.getItem('customMetrics');
+      if (raw) return { ...base, ...JSON.parse(raw) };
+    } catch {}
+    return base;
+  });
 
   /* --- Card definitions and active Cards ---
       Card Definitions (what each card contains)
@@ -162,7 +231,7 @@ export default function App() {
       Each User/Metric will have a time series of recorded values
       (for now, hardcode some sample data)
   */
-  const cardDefinitions = [
+  const [cardDefinitions, setCardDefinitions] = useState(() => { const base = [
     {
       cardName: "weight",
       title: "Weight",
@@ -235,6 +304,19 @@ export default function App() {
       metricNames: ["losartan"]
     },
   ];
+  try {
+    const raw = localStorage.getItem('customMetrics');
+    if (raw) {
+      const customs = JSON.parse(raw);
+      return [...base, ...Object.keys(customs).map(id => ({
+        cardName: id, title: customs[id].title,
+        icon: METRIC_ICONS[customs[id]._icon] ?? Activity,
+        metricNames: [id],
+      }))];
+    }
+  } catch {}
+  return base;
+  });
 
   const [activeCards, setActiveCards] = useState(() => {
     // On load, try to get preferred ordered list of active cards from localStorage
@@ -362,6 +444,48 @@ export default function App() {
   // --- Dialog state ----------------------------------------------------------
   const [open, setOpen] = useState(null);
 
+  // --- Card kebab menu state ------------------------------------------------
+  const [cardMenuOpen, setCardMenuOpen] = useState(null); // cardName | null
+
+  useEffect(() => {
+    if (!cardMenuOpen) return;
+    const close = (e) => {
+      if (!e.target.closest('.card-menu-popup') && !e.target.closest('.card-menu-btn')) {
+        setCardMenuOpen(null);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [cardMenuOpen]);
+
+  async function handleDeactivateCard(cardName, metricId) {
+    const next = activeCards.filter(c => c !== cardName);
+    setActiveCards(next);
+    try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
+    setCardMenuOpen(null);
+    if (authToken) {
+      fetch(`${API}/subscription`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ metricId, isActive: false }),
+      }).catch(() => {});
+    }
+  }
+
+  async function handleUnsubscribeCard(cardName, metricId) {
+    const next = activeCards.filter(c => c !== cardName);
+    setActiveCards(next);
+    try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
+    setCardMenuOpen(null);
+    if (authToken) {
+      fetch(`${API}/subscription`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ metricId }),
+      }).catch(() => {});
+    }
+  }
+
   // --- Feature flags (persisted) --------------------------------------------
   // In a real app, feature flags would typically come from the user's account
   // (e.g., fetched from your backend after auth) to control access like paid tiers
@@ -460,14 +584,56 @@ export default function App() {
     }
   };
 
+  function handleSaveCustomMetric() {
+    const def = open?.tempDef ?? {};
+    const name = (def.friendly_name ?? '').trim();
+    if (!name) { setOpen({ ...open, tempDefError: 'Friendly name is required.' }); return; }
+    const id = slugify(name) || `custom-${Date.now()}`;
+    if (metricConfig[id]) { setOpen({ ...open, tempDefError: `A metric named "${name}" already exists.` }); return; }
+    const kind = def.value_type === 'boolean' ? 'switch'
+               : (def.value_type === 'numeric' && def.slider_enabled) ? 'slider'
+               : 'singleValue';
+    const newConfigEntry = {
+      title: name, kind, uom: def.uom ?? '', _icon: def.icon || 'Activity',
+      ...(def.info_url ? { infoUrl: def.info_url } : {}),
+      ...(kind === 'slider' ? { logicalMin: def.logical_min ?? 0, logicalMax: def.logical_max ?? 10 } : {}),
+      ...(def.value_type === 'boolean' ? { falseTag: def.false_tag || 'No', trueTag: def.true_tag || 'Yes' } : {}),
+    };
+    const newCardEntry = { cardName: id, title: name, icon: METRIC_ICONS[def.icon] ?? Activity, metricNames: [id] };
+    setMetricConfig(prev => ({ ...prev, [id]: newConfigEntry }));
+    setCardDefinitions(prev => [...prev, newCardEntry]);
+    const nextActive = [...activeCards, id];
+    setActiveCards(nextActive);
+    try {
+      const customs = JSON.parse(localStorage.getItem('customMetrics') || '{}');
+      customs[id] = newConfigEntry;
+      localStorage.setItem('customMetrics', JSON.stringify(customs));
+      localStorage.setItem('activeCards', JSON.stringify(nextActive));
+    } catch {}
+    if (authToken) {
+      fetch(`${API}/metric`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({
+          metricId: id, friendlyName: name, icon: def.icon || 'Activity',
+          infoUrl: def.info_url || '', valueType: def.value_type,
+          sliderEnabled: !!def.slider_enabled, logicalMin: def.logical_min ?? 0,
+          logicalMax: def.logical_max ?? 10, uom: def.uom || '',
+          falseTag: def.false_tag || 'No', trueTag: def.true_tag || 'Yes',
+        }),
+      }).catch(() => {});
+    }
+    setOpen(null);
+  }
+
   if (!authToken) {
     return <LoginScreen onAuth={handleAuth} />;
   }
 
   if (profileReady === "loading") {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16, color: "#16a34a" }}>
-        <div className="login-spinner" style={{ width: 36, height: 36, borderWidth: 3, borderColor: "rgba(22,163,74,0.2)", borderTopColor: "#16a34a" }} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16, color: "#1530E8" }}>
+        <div className="login-spinner" style={{ width: 36, height: 36, borderWidth: 3, borderColor: "rgba(21,48,232,0.2)", borderTopColor: "#1530E8" }} />
         <div style={{ fontSize: 15, color: "#6b7280" }}>Loading your profile…</div>
       </div>
     );
@@ -733,6 +899,19 @@ export default function App() {
           >
             <Clock />
           </Button>
+          {/* add metric */}
+          <Button
+            variant="outline"
+            className="btn-icon"
+            aria-label="Add metric to dashboard"
+            title="Add a metric"
+            style={{ marginLeft: 8 }}
+            onClick={() => setOpen({ type: 'add-metric', screen: 'catalog',
+              tempDef: { value_type: 'numeric', slider_enabled: false, logical_min: 0, logical_max: 10,
+                icon: 'Activity', false_tag: 'No', true_tag: 'Yes', uom: '', friendly_name: '', info_url: '' } })}
+          >
+            <Plus />
+          </Button>
               {/* swipe left/right on the screen to change dates */}
             </div>
           </div>
@@ -857,7 +1036,7 @@ export default function App() {
                 });
                 const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
                 const Icon = meta.icon ?? Activity;
-                const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
+                const color = meta.color ?? (meta.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#1530E8");
 
                 // Use the first timestamp for display; count total entries for badge
                 const displayTimestamp = metricValues.find(v => v.timestamp)?.timestamp;
@@ -867,7 +1046,8 @@ export default function App() {
                 const sources = [...new Set(metricValues.map(mv => mv.source).filter(s => s && s !== "manual entry"))];
 
                 return (
-                  <Card key={meta.cardName} className="mydata-card" style={{ animationDelay: `${cardIdx * 0.06}s` }}>
+                  <div key={meta.cardName} className="mydata-card-wrapper">
+                  <Card className="mydata-card" style={{ animationDelay: `${cardIdx * 0.06}s` }}>
                     <CardContent>
                       <div
                         onClick={() => {
@@ -1032,6 +1212,33 @@ export default function App() {
                       </div>
                     </CardContent>
                   </Card>
+                  <button
+                    className={`card-menu-btn${cardMenuOpen === meta.cardName ? ' open' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCardMenuOpen(prev => prev === meta.cardName ? null : meta.cardName);
+                    }}
+                    aria-label="Card options"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
+                  {cardMenuOpen === meta.cardName && (
+                    <div className="card-menu-popup">
+                      <button
+                        className="card-menu-item"
+                        onClick={() => handleDeactivateCard(meta.cardName, meta.cardName)}
+                      >
+                        Remove from dashboard
+                      </button>
+                      <button
+                        className="card-menu-item danger"
+                        onClick={() => handleUnsubscribeCard(meta.cardName, meta.cardName)}
+                      >
+                        Unsubscribe
+                      </button>
+                    </div>
+                  )}
+                  </div>
                 );
               });
           })()}
@@ -1214,7 +1421,7 @@ export default function App() {
 
               const draggableItem = (c, from, index) => {
                 const Icon = c.icon ?? Activity;
-                const iconColor = c.color ?? (c.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#16a34a");
+                const iconColor = c.color ?? (c.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#1530E8");
                 return (
                   <li
                     key={c.cardName}
@@ -1683,6 +1890,196 @@ export default function App() {
           </DialogContent>
         )}
 
+        {/* Add Metric */}
+        {open?.type === "add-metric" && (
+          <DialogContent className="narrow-dialog add-metric-dialog">
+
+            {/* ── Screen 1: Catalog ── */}
+            {open.screen === 'catalog' && (<>
+              <DialogHeader>
+                <DialogTitle>Add a Metric</DialogTitle>
+              </DialogHeader>
+              {(() => {
+                const available = cardDefinitions.filter(c => !activeCards.includes(c.cardName));
+                return available.length > 0 ? (
+                  <ul className="add-metric-list">
+                    {available.map(c => {
+                      const Icon = c.icon ?? Activity;
+                      const color = c.color ?? "#1530E8";
+                      return (
+                        <li key={c.cardName}>
+                          <button className="add-metric-item" onClick={() => {
+                            const next = [...activeCards, c.cardName];
+                            setActiveCards(next);
+                            try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
+                            setOpen(null);
+                          }}>
+                            <Icon size={18} style={{ color, flexShrink: 0 }} />
+                            <span style={{ flex: 1 }}>{c.title}</span>
+                            <Plus size={13} style={{ opacity: 0.45 }} />
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>
+                    All catalog metrics are already on your dashboard.
+                  </div>
+                );
+              })()}
+              <div className="add-metric-sep" />
+              <button className="add-metric-custom-btn" onClick={() => setOpen({ ...open, screen: 'custom' })}>
+                <Plus size={15} />
+                <span>Define your own metric</span>
+              </button>
+              <DialogFooter style={{ marginTop: 16 }}>
+                <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
+              </DialogFooter>
+            </>)}
+
+            {/* ── Screen 2: Custom metric form ── */}
+            {open.screen === 'custom' && (<>
+              <DialogHeader style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontSize: 18, color: '#6b7280', lineHeight: 1 }}
+                  onClick={() => setOpen({ ...open, screen: 'catalog', tempDefError: undefined })}
+                  aria-label="Back to catalog"
+                >←</button>
+                <DialogTitle>New Metric</DialogTitle>
+              </DialogHeader>
+
+              <div className="custom-metric-form">
+                {/* Friendly Name */}
+                <fieldset className="notched-field">
+                  <legend className="notched-label">Friendly Name *</legend>
+                  <input
+                    type="text" autoFocus
+                    value={open.tempDef?.friendly_name ?? ''}
+                    onChange={e => {
+                      const friendly_name = e.target.value;
+                      const metric_id = slugify(friendly_name);
+                      setOpen({ ...open, tempDef: { ...open.tempDef, friendly_name, metric_id }, tempDefError: undefined });
+                    }}
+                    style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
+                  />
+                </fieldset>
+                {open.tempDef?.metric_id && (
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: -6 }}>
+                    id: <code style={{ background: '#f3f4f6', padding: '1px 5px', borderRadius: 3 }}>{open.tempDef.metric_id}</code>
+                  </div>
+                )}
+
+                {/* Icon picker */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Icon</div>
+                  <div className="metric-icon-grid">
+                    {Object.entries(METRIC_ICONS).map(([name, IconComp]) => (
+                      <button key={name} type="button"
+                        className={`metric-icon-btn${(open.tempDef?.icon ?? 'Activity') === name ? ' selected' : ''}`}
+                        title={name}
+                        onClick={() => setOpen({ ...open, tempDef: { ...open.tempDef, icon: name } })}
+                      ><IconComp size={17} /></button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Reference URL */}
+                <fieldset className="notched-field">
+                  <legend className="notched-label">Reference URL</legend>
+                  <input type="url"
+                    value={open.tempDef?.info_url ?? ''}
+                    onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, info_url: e.target.value } })}
+                    placeholder="https://"
+                    style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
+                  />
+                </fieldset>
+
+                {/* Value Type */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Value Type</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {[['numeric', 'Numeric'], ['boolean', 'Yes / No'], ['string', 'Text']].map(([val, label]) => (
+                      <button key={val} type="button"
+                        className={`value-type-btn${(open.tempDef?.value_type ?? 'numeric') === val ? ' selected' : ''}`}
+                        onClick={() => setOpen({ ...open, tempDef: { ...open.tempDef, value_type: val } })}
+                      >{label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Numeric options */}
+                {(open.tempDef?.value_type ?? 'numeric') === 'numeric' && (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    <fieldset className="notched-field">
+                      <legend className="notched-label">Unit of Measure</legend>
+                      <input type="text"
+                        value={open.tempDef?.uom ?? ''}
+                        onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, uom: e.target.value } })}
+                        placeholder="lbs, bpm, mmHg, °F …"
+                        style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
+                      />
+                    </fieldset>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 13, color: '#374151' }}>Use slider instead of free entry</span>
+                      <button type="button"
+                        className={`slider-toggle${open.tempDef?.slider_enabled ? ' on' : ''}`}
+                        onClick={() => setOpen({ ...open, tempDef: { ...open.tempDef, slider_enabled: !open.tempDef?.slider_enabled } })}
+                        aria-label="Toggle slider"
+                      />
+                    </div>
+                    {open.tempDef?.slider_enabled && (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <fieldset className="notched-field" style={{ flex: 1 }}>
+                          <legend className="notched-label">Min</legend>
+                          <input type="number" value={open.tempDef?.logical_min ?? 0}
+                            onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, logical_min: Number(e.target.value) } })}
+                            style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }} />
+                        </fieldset>
+                        <fieldset className="notched-field" style={{ flex: 1 }}>
+                          <legend className="notched-label">Max</legend>
+                          <input type="number" value={open.tempDef?.logical_max ?? 10}
+                            onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, logical_max: Number(e.target.value) } })}
+                            style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }} />
+                        </fieldset>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Boolean options */}
+                {open.tempDef?.value_type === 'boolean' && (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <fieldset className="notched-field" style={{ flex: 1 }}>
+                      <legend className="notched-label">False label</legend>
+                      <input type="text" value={open.tempDef?.false_tag ?? 'No'}
+                        onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, false_tag: e.target.value } })}
+                        style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }} />
+                    </fieldset>
+                    <fieldset className="notched-field" style={{ flex: 1 }}>
+                      <legend className="notched-label">True label</legend>
+                      <input type="text" value={open.tempDef?.true_tag ?? 'Yes'}
+                        onChange={e => setOpen({ ...open, tempDef: { ...open.tempDef, true_tag: e.target.value } })}
+                        style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }} />
+                    </fieldset>
+                  </div>
+                )}
+
+                {open.tempDefError && (
+                  <div style={{ color: '#dc2626', fontSize: 13 }}>{open.tempDefError}</div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'catalog', tempDefError: undefined })}>Back</Button>
+                <Button onClick={handleSaveCustomMetric}>Save Metric</Button>
+              </DialogFooter>
+            </>)}
+
+          </DialogContent>
+        )}
+
         {/* Single Value Metrics */}
         {open?.metricNames && (
           <DialogContent className="narrow-dialog">
@@ -1925,15 +2322,18 @@ export default function App() {
                 const promptText = cfg.prompt ?? toSentenceCase(metricName);
 
                 if (kind === "slider") {
+                  const sliderMin = cfg.logicalMin ?? 0;
+                  const sliderMax = cfg.logicalMax ?? 10;
+                  const sliderUom = cfg.uom ? ` ${cfg.uom}` : '';
                   return (
                     <div key={metricName} style={{ marginBottom: 16 }}>
                       <Label htmlFor={metricName}>{promptText}</Label>
                       <div style={{ maxWidth: 320 }}>
                         <Slider
                           id={metricName}
-                          value={[open.metricValues?.[idx]?.value ?? 0]}
-                          min={0}
-                          max={10}
+                          value={[open.metricValues?.[idx]?.value ?? sliderMin]}
+                          min={sliderMin}
+                          max={sliderMax}
                           step={1}
                           onValueChange={(v) => {
                             const updatedValues = [...(open.metricValues ?? [])];
@@ -1942,11 +2342,11 @@ export default function App() {
                           }}
                         />
                         <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-                          <span>0 • Good</span>
+                          <span>{sliderMin}{sliderUom}</span>
                           <span style={{ fontSize: '24px', fontWeight: 600, color: "#222", margin: "0 12px" }}>
-                            {open.metricValues?.[idx]?.value ?? 0}
+                            {open.metricValues?.[idx]?.value ?? sliderMin}{sliderUom}
                           </span>
-                          <span>10 • Awful</span>
+                          <span>{sliderMax}{sliderUom}</span>
                         </div>
                       </div>
                     </div>

@@ -5,7 +5,7 @@
     --muted: #9ca3af;
     --card: #f8fafc;
     --accent: #2563eb;
-    --success: #16a34a;
+    --success: #1530E8;
     --danger: #dc2626;
 }
 
@@ -64,7 +64,7 @@ body {
 
 .btn-add {
     background: var(--success);
-    border-color: rgba(22, 163, 74, 0.9);
+    border-color: rgba(21, 48, 232, 0.9);
     color: #fff;
 }
 
@@ -93,32 +93,32 @@ body {
 }
 
 .btn-icon.btn-mode.btn-mode-active {
-    background: #16a34a;
-    /* green active */
+    background: #1530E8;
+    /* blue active */
     /* filled when active */
     color: #fff;
-    border-color: #16a34a;
+    border-color: #1530E8;
 }
 
 /* Mode selector dropdown (History metric picker) */
 .mode-select {
     height: 36px;
     border-radius: 8px;
-    border: 1px solid rgba(22, 163, 74, 0.35);
+    border: 1px solid rgba(21, 48, 232, 0.35);
     background: #fff;
-    color: #16a34a;
+    color: #1530E8;
     padding: 0 10px;
     font-size: 14px;
     margin-left: 6px;
 }
 
 .mode-select:hover {
-    background: rgba(22, 163, 74, 0.06);
+    background: rgba(21, 48, 232, 0.06);
 }
 
 .mode-select:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+    box-shadow: 0 0 0 2px rgba(21, 48, 232, 0.2);
 }
 
 /* spacer between mode controls and settings */
@@ -138,20 +138,20 @@ body {
 .date-pill {
     height: 36px;
     border-radius: 8px;
-    border: 1px solid rgba(22, 163, 74, 0.35);
+    border: 1px solid rgba(21, 48, 232, 0.35);
     background: #fff;
-    color: #16a34a;
+    color: #1530E8;
     padding: 0 10px;
     font-size: 14px;
 }
 
 .date-pill:hover {
-    background: rgba(22, 163, 74, 0.06);
+    background: rgba(21, 48, 232, 0.06);
 }
 
 .date-pill:focus {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2);
+    box-shadow: 0 0 0 2px rgba(21, 48, 232, 0.2);
 }
 
 /* Calendar popup overlay and container */
@@ -244,7 +244,11 @@ body {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 20px;
+    padding-bottom: 20px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
     animation: home-header-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -294,7 +298,7 @@ body {
 }
 
 .home-settings-btn--avatar:hover .home-settings-avatar-img {
-    border-color: #16a34a;
+    border-color: #1530E8;
 }
 
 .home-settings-gear {
@@ -557,7 +561,26 @@ input[type="time"].no-native-picker {
 .home-wrapper {
     display: flex;
     flex-direction: column;
-    min-height: calc(100vh - 48px);
+    height: calc(100vh - 48px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin-right: -24px;
+    padding-right: 24px;
+    scrollbar-width: thin;          /* Firefox */
+    scrollbar-color: rgba(0,0,0,0.2) transparent;
+}
+
+.home-wrapper::-webkit-scrollbar {
+    width: 4px;
+}
+
+.home-wrapper::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.home-wrapper::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 2px;
 }
 
 .home-grid {
@@ -594,17 +617,19 @@ input[type="time"].no-native-picker {
 
 .home-panel--data {
     grid-row: 1 / 3;
-    background: linear-gradient(145deg, #0f766e 0%, #16a34a 55%, #4ade80 100%);
+    background: linear-gradient(145deg, #0e1fc0 0%, #1530E8 55%, #818cf8 100%);
     animation-delay: 0.05s;
 }
 
 .home-panel--programs {
-    background: linear-gradient(145deg, #7c3aed, #4f46e5);
+    background: #E2F8B2;
+    color: #1a2e05;
     animation-delay: 0.18s;
 }
 
 .home-panel--circles {
-    background: linear-gradient(145deg, #0284c7, #2563eb);
+    background: #7FBFC6;
+    color: #0c2427;
     animation-delay: 0.31s;
 }
 
@@ -658,6 +683,10 @@ input[type="time"].no-native-picker {
     font-weight: 600;
     opacity: 0.9;
     align-self: flex-start;
+}
+
+.home-panel--programs .home-panel-badge {
+    border-color: rgba(26, 46, 5, 0.3);
 }
 
 /* Section placeholder pages (My Programs, My Circles) */
@@ -765,7 +794,7 @@ input[type="time"].no-native-picker {
 .mydata-hero {
     margin: -24px -24px 0 -24px;
     padding: 24px 32px 22px;
-    background: linear-gradient(145deg, #0f766e 0%, #16a34a 55%, #4ade80 100%);
+    background: linear-gradient(145deg, #0e1fc0 0%, #1530E8 55%, #818cf8 100%);
     display: flex;
     align-items: flex-end;
     justify-content: space-between;
@@ -822,7 +851,7 @@ input[type="time"].no-native-picker {
 }
 .mydata-hero-actions .btn-icon.btn-mode-active {
     background: rgba(255, 255, 255, 0.92);
-    color: #0f766e;
+    color: #1530E8;
     border-color: transparent;
 }
 .mydata-hero-actions .date-pill {
@@ -902,6 +931,85 @@ input[type="time"].no-native-picker {
     color: #9ca3af;
 }
 
+/* Card wrapper for kebab menu positioning */
+.mydata-card-wrapper {
+    position: relative;
+    border-radius: 16px;
+    animation: card-pop-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Remove animation from Card itself when inside wrapper */
+.mydata-card-wrapper .mydata-card {
+    animation: none;
+}
+
+/* ⋮ kebab button */
+.card-menu-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #9ca3af;
+    opacity: 0;
+    transition: opacity 0.15s ease, background 0.15s ease;
+    z-index: 2;
+}
+.mydata-card-wrapper:hover .card-menu-btn,
+.card-menu-btn.open {
+    opacity: 1;
+}
+.card-menu-btn:hover,
+.card-menu-btn.open {
+    background: rgba(0, 0, 0, 0.07);
+    color: #374151;
+}
+
+/* Kebab dropdown popup */
+.card-menu-popup {
+    position: absolute;
+    top: 36px;
+    right: 8px;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    z-index: 100;
+    min-width: 180px;
+    padding: 4px 0;
+    overflow: hidden;
+}
+
+.card-menu-item {
+    display: block;
+    width: 100%;
+    padding: 9px 16px;
+    background: none;
+    border: none;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+.card-menu-item:hover {
+    background: #f3f4f6;
+}
+.card-menu-item.danger {
+    color: #dc2626;
+}
+.card-menu-item.danger:hover {
+    background: #fef2f2;
+}
+
 @media (max-width: 640px) {
     .mydata-hero {
         flex-direction: column;
@@ -935,7 +1043,7 @@ input[type="time"].no-native-picker {
 }
 
 .profile-hero {
-    background: linear-gradient(135deg, #16a34a 0%, #15803d 50%, #166534 100%);
+    background: linear-gradient(135deg, #1530E8 0%, #0f20c0 50%, #0a1580 100%);
     padding: 32px 24px 28px;
     display: flex;
     flex-direction: column;
@@ -990,7 +1098,7 @@ input[type="time"].no-native-picker {
     justify-content: center;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    color: #16a34a;
+    color: #1530E8;
     transition: transform 0.15s, box-shadow 0.15s;
 }
 
@@ -1040,7 +1148,7 @@ input[type="time"].no-native-picker {
 }
 
 .notched-field:focus-within {
-    border-color: #16a34a;
+    border-color: #1530E8;
 }
 
 .notched-label {
@@ -1054,7 +1162,7 @@ input[type="time"].no-native-picker {
 }
 
 .notched-field:focus-within .notched-label {
-    color: #16a34a;
+    color: #1530E8;
 }
 
 /* small calendar btn inside notched DOB field */
@@ -1068,8 +1176,8 @@ input[type="time"].no-native-picker {
 }
 
 .notched-dob-btn:hover {
-    background: rgba(22, 163, 74, 0.08) !important;
-    color: #16a34a !important;
+    background: rgba(21, 48, 232, 0.08) !important;
+    color: #1530E8 !important;
 }
 
 /* ── Login Screen ──────────────────────────────────────── */
@@ -1079,20 +1187,20 @@ input[type="time"].no-native-picker {
     inset: 0;
     display: flex;
     flex-direction: column;
-    background: #f0fdf4;
+    background: #eef0fd;
     z-index: 200;
 }
 
 /* Hero area */
 .login-hero {
-    flex: 0 0 44vh;
-    min-height: 220px;
-    background: linear-gradient(145deg, #0f766e 0%, #16a34a 55%, #4ade80 100%);
+    min-height: 200px;
+    background: linear-gradient(145deg, #0e1fc0 0%, #1530E8 55%, #818cf8 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
     overflow: hidden;
+    padding: 44px 24px 36px;
 }
 
 /* Decorative blobs */
@@ -1128,6 +1236,7 @@ input[type="time"].no-native-picker {
     color: white;
     animation: home-header-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
     padding: 0 24px;
+    isolation: isolate;
 }
 
 .login-logo-wrap {
@@ -1143,16 +1252,31 @@ input[type="time"].no-native-picker {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(255,255,255,0.25);
 }
 
+.login-logo-img {
+    width: 300px;
+    max-width: 82%;
+    height: auto;
+    margin-bottom: 16px;
+    mix-blend-mode: multiply;
+    position: relative;
+    z-index: 2;
+    background: #E2F8B2;
+    padding: 20px 30px;
+    border-radius: 30px;
+    box-sizing: border-box;
+}
+
 .login-app-name {
     font-size: 2.15rem;
     font-weight: 800;
     letter-spacing: -0.03em;
     margin-bottom: 8px;
     text-shadow: 0 1px 8px rgba(0,0,0,0.15);
+    display: none;
 }
 
 .login-greeting {
-    font-size: 1.1rem;
+    font-size: 1.5rem;
     font-weight: 500;
     opacity: 0.9;
     letter-spacing: -0.01em;
@@ -1222,6 +1346,8 @@ input[type="time"].no-native-picker {
 .login-form .notched-field input {
     width: 100%;
     box-sizing: border-box;
+    border: none;
+    outline: none;
 }
 
 /* Action button */
@@ -1232,7 +1358,7 @@ input[type="time"].no-native-picker {
     gap: 10px;
     width: 100%;
     padding: 15px 20px;
-    background: linear-gradient(135deg, #16a34a, #0f766e);
+    background: linear-gradient(135deg, #1530E8, #0e1fc0);
     color: white;
     border: none;
     border-radius: 14px;
@@ -1241,19 +1367,19 @@ input[type="time"].no-native-picker {
     font-family: inherit;
     cursor: pointer;
     transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
-    box-shadow: 0 4px 18px rgba(22, 163, 74, 0.38);
+    box-shadow: 0 4px 18px rgba(21, 48, 232, 0.38);
     margin-top: 4px;
 }
 
 .login-btn:hover:not(:disabled) {
     opacity: 0.93;
     transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(22, 163, 74, 0.44);
+    box-shadow: 0 8px 28px rgba(21, 48, 232, 0.44);
 }
 
 .login-btn:active:not(:disabled) {
     transform: translateY(0);
-    box-shadow: 0 2px 10px rgba(22, 163, 74, 0.3);
+    box-shadow: 0 2px 10px rgba(21, 48, 232, 0.3);
 }
 
 .login-btn:disabled {
@@ -1318,4 +1444,176 @@ input[type="time"].no-native-picker {
 
 @keyframes login-spin {
     to { transform: rotate(360deg); }
+}
+
+/* ── Add Metric dialog ──────────────────────────────────────────────────── */
+
+.add-metric-dialog {
+    max-height: calc(100dvh - 80px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.add-metric-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.add-metric-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #111827;
+    text-align: left;
+    font-family: inherit;
+    transition: background 0.15s;
+}
+
+.add-metric-item:hover {
+    background: #f3f4f6;
+}
+
+.add-metric-sep {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 12px 0 8px;
+}
+
+.add-metric-custom-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1.5px dashed #d1d5db;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    color: #1530E8;
+    font-weight: 600;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.add-metric-custom-btn:hover {
+    background: #f0f4ff;
+    border-color: #1530E8;
+}
+
+/* Custom metric definition form */
+.custom-metric-form {
+    display: grid;
+    gap: 12px;
+    margin-top: 8px;
+    max-height: calc(100dvh - 260px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 4px 0 2px;
+}
+
+/* Icon grid picker */
+.metric-icon-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.metric-icon-btn {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    cursor: pointer;
+    color: #374151;
+    padding: 0;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.metric-icon-btn:hover {
+    background: #f0f4ff;
+    border-color: #1530E8;
+    color: #1530E8;
+}
+
+.metric-icon-btn.selected {
+    background: #1530E8;
+    border-color: #1530E8;
+    color: white;
+}
+
+/* Value-type selector buttons */
+.value-type-btn {
+    flex: 1;
+    padding: 8px 4px;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    color: #374151;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.value-type-btn:hover {
+    border-color: #1530E8;
+    color: #1530E8;
+}
+
+.value-type-btn.selected {
+    background: #1530E8;
+    border-color: #1530E8;
+    color: white;
+}
+
+/* Slider toggle (used in custom metric form) */
+.slider-toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background: #d1d5db;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+
+.slider-toggle::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: left 0.2s;
+}
+
+.slider-toggle.on {
+    background: #1530E8;
+}
+
+.slider-toggle.on::after {
+    left: 21px;
 }

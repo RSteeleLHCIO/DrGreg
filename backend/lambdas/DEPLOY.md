@@ -73,6 +73,10 @@ Compress-Archive -Path login-finish.mjs, node_modules, package.json -Destination
 Compress-Archive -Path profile-get.mjs, node_modules, package.json -DestinationPath profile-get.zip
 Compress-Archive -Path profile-save.mjs, node_modules, package.json -DestinationPath profile-save.zip
 Compress-Archive -Path photo-upload-url.mjs, node_modules, package.json -DestinationPath photo-upload-url.zip
+Compress-Archive -Force -Path metric-definition-save.mjs, node_modules, package.json -DestinationPath metric-definition-save.zip
+Compress-Archive -Force -Path metric-catalog-get.mjs, node_modules, package.json -DestinationPath metric-catalog-get.zip
+Compress-Archive -Force -Path metric-subscriptions-get.mjs, node_modules, package.json -DestinationPath metric-subscriptions-get.zip
+Compress-Archive -Force -Path metric-subscribe.mjs, node_modules, package.json -DestinationPath metric-subscribe.zip
 ```
 
 ---
@@ -134,11 +138,18 @@ Each Lambda needs permission to read and write the DynamoDB table.
 | POST | `/auth/register/finish` | `tobbihealth-register-finish` |
 | POST | `/auth/login/begin` | `tobbihealth-login-begin` |
 | POST | `/auth/login/finish` | `tobbihealth-login-finish` |
+| GET  | `/profile`          | `tobbihealth-profile-get` |
+| PUT  | `/profile`          | `tobbihealth-profile-save` |
+| PUT  | `/metric`           | `tobbihealth-metric-definition-save` |
+| GET  | `/metrics/catalog`  | `tobbihealth-metric-catalog-get` |
+| GET  | `/subscriptions`    | `tobbihealth-metric-subscriptions-get` |
+| POST | `/subscription`     | `tobbihealth-metric-subscribe` |
+| DELETE | `/subscription`   | `tobbihealth-metric-subscribe` |
 
 4. Under **CORS**, set:
    - **Allow origin**: `http://localhost:5173`
    - **Allow headers**: `content-type` then `authorization` *(two separate chips — do NOT combine into one)*
-   - **Allow methods**: `POST, OPTIONS`
+   - **Allow methods**: `POST, PUT, GET, DELETE, OPTIONS`
 
    > ⚠️ **AWS UI gotchas**:
    > 1. After typing each value, you must click **Add** to lock it in as a tag/chip before clicking **Save**. Values still in the text box when you hit Save are silently discarded.

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
-import { Activity, KeyRound, UserPlus, ArrowRight, AlertCircle } from "lucide-react";
+import { KeyRound, UserPlus, ArrowRight, AlertCircle } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
@@ -22,6 +22,8 @@ function getGreeting() {
     "Ready to check in?",
     "Your health journey continues.",
     "Let's see how you're doing!",
+    "Share the journey.",
+    "Connect your health.",
     "Small steps, big wins.",
     "Looking after yourself — love it.",
     "Great to see you!",
@@ -136,10 +138,11 @@ export default function LoginScreen({ onAuth }) {
       {/* ── Hero ── */}
       <div className="login-hero">
         <div className="login-hero-inner">
-          <div className="login-logo-wrap">
-            <Activity size={34} strokeWidth={2.5} />
-          </div>
-          <div className="login-app-name">TobbiHealth</div>
+          <img
+            src="/tobbi-logo.png"
+            alt="Tobbi"
+            className="login-logo-img"
+          />
           <div className="login-greeting">{greeting}</div>
         </div>
       </div>

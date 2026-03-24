@@ -160,6 +160,84 @@ export const METRIC_CONFIG = {
   losartan:    { title: "Rx – Losartan",  kind: "switch",      uom: "",     prompt: "Did you take Losartan today?" },
 };
 
+// ─── Metric definition (the catalogue entry for a metric) ────────────────────
+
+/**
+ * Describes a metric that can be tracked.
+ *
+ * System-provided metrics:  isPublic = true,  createdBy = "SYSTEM"
+ * User-created metrics:     isPublic = false, createdBy = <userId>
+ *
+ * @typedef {Object} MetricDefinition
+ * @property {string}  metricId      - Slug-style id, e.g. "blood-glucose"
+ * @property {string}  friendlyName  - Display label, e.g. "Blood Glucose"
+ * @property {string}  icon          - Lucide icon name from the allowed set
+ * @property {string}  infoUrl       - Optional http/https reference URL
+ * @property {'numeric'|'boolean'|'string'} valueType
+ * @property {boolean} isPublic      - Whether visible to all users in the catalogue
+ * @property {string}  createdBy     - userId of creator, or "SYSTEM"
+ * @property {string}  updatedAt     - ISO-8601 last-write timestamp
+ *
+ * -- numeric only --
+ * @property {boolean} [sliderEnabled]
+ * @property {string}  [uom]
+ * @property {number}  [logicalMin]
+ * @property {number}  [logicalMax]
+ *
+ * -- boolean only --
+ * @property {string}  [falseTag]
+ * @property {string}  [trueTag]
+ */
+export const METRIC_DEFINITION_DEFAULTS = {
+  metricId:     "",
+  friendlyName: "",
+  icon:         "Activity",
+  infoUrl:      "",
+  valueType:    "numeric",
+  isPublic:     false,
+  createdBy:    "",
+  updatedAt:    "",
+};
+
+// ─── Metric subscription (user ↔ metric join record) ─────────────────────────
+
+/**
+ * Records that a user has subscribed to a particular metric.
+ *
+ * DynamoDB key pattern:
+ *   PK = "USER#<userId>"
+ *   SK = "METRIC#<metricId>"
+ *
+ * Query "all metrics for a user":
+ *   Main table, PK = "USER#<id>", SK begins_with "METRIC#"
+ *
+ * Query "all subscribers for a metric" (future / admin use):
+ *   GSI-2 (inverted index), partition key = "METRIC#<id>"
+ *
+ * Subscription states:
+ *   No record        → never subscribed
+ *   isActive: true   → subscribed and visible on dashboard
+ *   isActive: false  → subscribed but hidden from dashboard ("removed from dashboard")
+ *
+ * The original subscribedAt is preserved across deactivate/re-activate cycles.
+ * displayOrder is optional and reserved for future card reordering.
+ *
+ * @typedef {Object} MetricSubscription
+ * @property {string}  userId        - The subscribing user
+ * @property {string}  metricId      - The subscribed metric
+ * @property {boolean} isActive      - Whether the card appears on the dashboard
+ * @property {string}  subscribedAt  - ISO-8601 timestamp of original subscription
+ * @property {string}  updatedAt     - ISO-8601 timestamp of last isActive change
+ * @property {number}  [displayOrder] - Optional card sort position (reserved)
+ */
+export const METRIC_SUBSCRIPTION_DEFAULTS = {
+  userId:       "",
+  metricId:     "",
+  isActive:     true,
+  subscribedAt: "",
+  updatedAt:    "",
+};
+
 // ─── localStorage key registry ────────────────────────────────────────────────
 
 /**
