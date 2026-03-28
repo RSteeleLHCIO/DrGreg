@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, SlidersHorizontal, Settings, Plus, Clock, Thermometer, History, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut, MoreVertical } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, Settings, Plus, Clock, Thermometer, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut, MoreVertical, Flag, Trash2, CheckCircle2, Sun, ChevronLeft } from "lucide-react";
 
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
 import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
+import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS } from './db/schema';
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
 
@@ -62,6 +63,8 @@ export default function App() {
     fetchAndApplySubscriptions(token);
     // Load the most recent 7 days of entry data.
     fetchAndApplyEntries(token);
+    // Load saved goals for this user.
+    fetchAndApplyGoals(token);
   }
 
   async function fetchAndApplyEntries(token) {
@@ -89,6 +92,37 @@ export default function App() {
     }
   }
 
+  async function fetchAndApplyGoals(token) {
+    try {
+      const res = await fetch(`${API}/goals`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const { goals: list } = await res.json();
+        const goalList = list ?? [];
+        setGoals(goalList);
+        const active = goalList.filter(g => g.isActive);
+        if (active.length > 0) fetchGoalProgress(token, active);
+      }
+    } catch {}
+  }
+
+  async function fetchGoalProgress(token, goalList) {
+    const settled = await Promise.allSettled(
+      goalList.map(g =>
+        fetch(`${API}/goal/progress?goalId=${encodeURIComponent(g.goalId)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(r => r.ok ? r.json() : null)
+      )
+    );
+    const map = {};
+    goalList.forEach((g, i) => {
+      const r = settled[i];
+      if (r.status === 'fulfilled' && r.value) map[g.goalId] = r.value;
+    });
+    setGoalProgress(prev => ({ ...prev, ...map }));
+  }
+
   async function fetchAndApplySubscriptions(token) {
     try {
       const res = await fetch(`${API}/subscriptions`, {
@@ -104,6 +138,7 @@ export default function App() {
       for (const def of subscriptions) {
         const kind = def.valueType === 'boolean' ? 'switch'
                    : (def.valueType === 'numeric' && def.sliderEnabled) ? 'slider'
+                   : def.valueType === 'string' ? 'text'
                    : 'singleValue';
         configUpdates[def.metricId] = {
           title: def.friendlyName,
@@ -113,6 +148,8 @@ export default function App() {
           ...(def.infoUrl ? { infoUrl: def.infoUrl } : {}),
           ...(kind === 'slider' ? { logicalMin: def.logicalMin ?? 0, logicalMax: def.logicalMax ?? 10 } : {}),
           ...(kind === 'switch' ? { falseTag: def.falseTag || 'No', trueTag: def.trueTag || 'Yes' } : {}),
+          currentDailyStreak:  def.currentDailyStreak  ?? 0,
+          currentWeeklyStreak: def.currentWeeklyStreak ?? 0,
         };
         cardUpdates.push({
           cardName: def.metricId,
@@ -300,6 +337,22 @@ export default function App() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ metric: newData.metric, ts, value: newData.inputValue, source }),
+      }).then(r => r.ok ? r.json() : null).then(data => {
+        if (!data) return;
+        const { currentDailyStreak, currentWeeklyStreak } = data;
+        if (currentDailyStreak == null && currentWeeklyStreak == null) return;
+        setMetricConfig(prev => {
+          const existing = prev[newData.metric];
+          if (!existing) return prev;
+          return {
+            ...prev,
+            [newData.metric]: {
+              ...existing,
+              currentDailyStreak:  currentDailyStreak  ?? existing.currentDailyStreak,
+              currentWeeklyStreak: currentWeeklyStreak ?? existing.currentWeeklyStreak,
+            },
+          };
+        });
       }).catch(() => {});
     }
 
@@ -385,29 +438,108 @@ export default function App() {
     }
   }
 
-  // --- Feature flags (persisted) --------------------------------------------
-  // In a real app, feature flags would typically come from the user's account
-  // (e.g., fetched from your backend after auth) to control access like paid tiers
-  // or experimental features. Here we scaffold a local persisted object and keep it
-  // in localStorage for the demo.
-  const [featureFlags, setFeatureFlags] = useState(() => {
-    try {
-      const raw = localStorage.getItem("featureFlags");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        return { paidVersion: false, ...parsed };
-      }
-    } catch { }
-    return { paidVersion: false };
-  });
+  function openGoalWizard(metricId, specificGoalId) {
+    const metricTitle = metricConfig[metricId]?.title || toSentenceCase(metricId);
+    const templates = METRIC_GOAL_TEMPLATES[metricId] ?? [];
+    const existingGoal = specificGoalId
+      ? goals.find(g => g.goalId === specificGoalId)
+      : goals.find(g => g.metricId === metricId && g.isActive);
+    const todayIso = new Date().toISOString().split('T')[0];
+    if (existingGoal) {
+      setOpen({
+        type: 'goal-wizard',
+        metricId,
+        metricTitle,
+        screen: 'configure',
+        template: null,
+        draft: { ...existingGoal },
+        editGoalId: existingGoal.goalId,
+      });
+    } else {
+      setOpen({
+        type: 'goal-wizard',
+        metricId,
+        metricTitle,
+        screen: templates.length > 0 ? 'templates' : 'configure',
+        template: null,
+        draft: { ...GOAL_DEFAULTS, metricId, name: '', startDate: todayIso },
+        editGoalId: undefined,
+      });
+    }
+    setCardMenuOpen(null);
+  }
 
+  async function handleSaveGoal() {
+    const draft = open?.draft;
+    if (!draft?.name?.trim()) {
+      setOpen({ ...open, saveError: 'Please enter a goal name.' });
+      return;
+    }
+    if (draft.goalType === 'range') {
+      if (draft.targetMin == null || draft.targetMax == null) {
+        setOpen({ ...open, saveError: 'Please enter both Min and Max values.' });
+        return;
+      }
+    } else if (draft.goalType === 'streak') {
+      if (!draft.streakTarget) {
+        setOpen({ ...open, saveError: 'Please enter a streak target (days).' });
+        return;
+      }
+    } else {
+      if (draft.targetValue == null) {
+        setOpen({ ...open, saveError: 'Please enter a target value.' });
+        return;
+      }
+    }
+    setOpen({ ...open, isSaving: true, saveError: undefined });
+    try {
+      const body = { ...draft };
+      if (open.editGoalId) body.goalId = open.editGoalId;
+      const res = await fetch(`${API}/goal`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setOpen({ ...open, isSaving: false, saveError: err.error || 'Save failed. Please try again.' });
+        return;
+      }
+      const { goal } = await res.json();
+      setGoals(prev => [...prev.filter(g => g.goalId !== goal.goalId), goal]);
+      fetchGoalProgress(authToken, [goal]);
+      setOpen(null);
+    } catch {
+      setOpen({ ...open, isSaving: false, saveError: 'Network error. Please try again.' });
+    }
+  }
+
+  async function handleDeleteGoal(goalId) {
+    if (!window.confirm('Delete this goal?')) return;
+    try {
+      const res = await fetch(`${API}/goal`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ goalId }),
+      });
+      if (res.ok) {
+        setGoals(prev => prev.filter(g => g.goalId !== goalId));
+        setGoalProgress(prev => { const n = { ...prev }; delete n[goalId]; return n; });
+      }
+    } catch {}
+  }
+
+  // --- Feature flags (persisted) --------------------------------------------
   // --- View mode ------------------------------------------------------------
   // 'day' = show all cards for selected date
   // 'metric-history' = show all entries for a specific metric across dates
   // 'latest' = show all cards with their most recent data regardless of date
   const [viewMode, setViewMode] = useState('day');
+  const [goals, setGoals] = useState([]);
+  const [goalProgress, setGoalProgress] = useState({});
   const defaultHistoryMetric = 'weight';
   const [historyMetric, setHistoryMetric] = useState(defaultHistoryMetric);
+  const [prevViewMode, setPrevViewMode] = useState('day');
 
   // date navigation helpers
   function prevDay() {
@@ -491,6 +623,7 @@ export default function App() {
     if (metricConfig[id]) { setOpen({ ...open, tempDefError: `A metric named "${name}" already exists.` }); return; }
     const kind = def.value_type === 'boolean' ? 'switch'
                : (def.value_type === 'numeric' && def.slider_enabled) ? 'slider'
+               : def.value_type === 'string' ? 'text'
                : 'singleValue';
     const newConfigEntry = {
       title: name, kind, uom: def.uom ?? '', _icon: def.icon || 'Activity',
@@ -520,7 +653,16 @@ export default function App() {
           logicalMax: def.logical_max ?? 10, uom: def.uom || '',
           falseTag: def.false_tag || 'No', trueTag: def.true_tag || 'Yes',
         }),
-      }).catch(() => {});
+      })
+      .then(() =>
+        // Subscribe the user to their newly created metric
+        fetch(`${API}/subscription`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ metricId: id }),
+        })
+      )
+      .catch(() => {});
     }
     setOpen(null);
   }
@@ -594,16 +736,6 @@ export default function App() {
               <Link size={18} />
               <span>Connected Services</span>
             </button>
-            <button
-              className="settings-menu-item"
-              onClick={() => {
-                setShowSettingsMenu(false);
-                setOpen({ type: "configure", tempActive: [...activeCards], tempFlags: { ...featureFlags } });
-              }}
-            >
-              <SlidersHorizontal size={18} />
-              <span>Customize Dashboard</span>
-            </button>
             <div className="settings-menu-divider" />
             <button
               className="settings-menu-item"
@@ -612,7 +744,7 @@ export default function App() {
                 setOpen({ type: "import" });
               }}
             >
-              <Upload size={18} />
+              <Download size={18} />
               <span>Import Data</span>
             </button>
             <button
@@ -622,7 +754,7 @@ export default function App() {
                 setOpen({ type: "export" });
               }}
             >
-              <Download size={18} />
+              <Upload size={18} />
               <span>Export Data</span>
             </button>
             <div className="settings-menu-divider" />
@@ -765,38 +897,25 @@ export default function App() {
               {selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </button>
           )}
-          {/* history view */}
+          {/* current/today view */}
           <Button
             variant="outline"
-            className={`btn-icon btn-mode ${viewMode === 'metric-history' ? 'btn-mode-active' : ''}`}
-            aria-label="History view"
-            title="History view"
-            onClick={() => setViewMode('metric-history')}
+            className={`btn-icon btn-mode ${viewMode === 'current' ? 'btn-mode-active' : ''}`}
+            aria-label="Today"
+            title="Today"
+            onClick={() => setViewMode('current')}
           >
-            <History />
+            <Sun />
           </Button>
-          {/* selectors next to active modes */}
-          {viewMode === 'metric-history' && (
-            <select
-              className="mode-select"
-              aria-label="Choose metric"
-              value={historyMetric}
-              onChange={(e) => setHistoryMetric(e.target.value)}
-            >
-              {Object.keys(metricConfig).map((m) => (
-                <option key={m} value={m}>{metricConfig[m].title || toSentenceCase(m)}</option>
-              ))}
-            </select>
-          )}
-          {/* latest view */}
+          {/* goals view */}
           <Button
             variant="outline"
-            className={`btn-icon btn-mode ${viewMode === 'latest' ? 'btn-mode-active' : ''}`}
-            aria-label="Latest view"
-            title="Latest view"
-            onClick={() => setViewMode('latest')}
+            className={`btn-icon btn-mode ${viewMode === 'goals' ? 'btn-mode-active' : ''}`}
+            aria-label="Goals"
+            title="My Goals"
+            onClick={() => setViewMode('goals')}
           >
-            <Clock />
+            <Flag />
           </Button>
           {/* add metric */}
           <Button
@@ -854,11 +973,71 @@ export default function App() {
       <div className="mydata-view-label">
         {viewMode === 'day' && <span>Data for {niceDate}</span>}
         {viewMode === 'metric-history' && <span>History: {metricConfig[historyMetric]?.title || toSentenceCase(historyMetric)}</span>}
-        {viewMode === 'latest' && <span>Most recent entries</span>}
+        {viewMode === 'current' && <span>Today</span>}
+        {viewMode === 'goals' && <span>My Goals</span>}
       </div>
 
       {/* Main content */}
-      {viewMode !== 'metric-history' ? (
+      {viewMode === 'goals' ? (
+        /* ── Goals panel ── */
+        <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 8px 80px' }}>
+          {goals.filter(g => g.isActive).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#9ca3af' }}>
+              <Flag size={48} strokeWidth={1.5} style={{ marginBottom: 12, opacity: 0.4 }} />
+              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#374151' }}>No goals yet</div>
+              <div style={{ fontSize: 14 }}>Tap ··· on any metric card to set a goal.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {goals.filter(g => g.isActive).map(goal => {
+                const prog = goalProgress[goal.goalId];
+                const metricTitle = metricConfig[goal.metricId]?.title || toSentenceCase(goal.metricId);
+                const pct = prog?.pct ?? null;
+                const isOnTrack = prog?.isOnTrack ?? null;
+                const barColor = isOnTrack === true ? '#10b981' : pct != null && pct >= 60 ? '#f59e0b' : '#ef4444';
+                const PERIOD_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling', all_time: 'All Time' };
+                const TYPE_LABELS = { target_value: 'Target', cumulative: 'Cumulative', range: 'Range', streak: 'Streak', best_of: 'Personal Best' };
+                return (
+                  <div key={goal.goalId} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 10, background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 15 }}>{goal.name}</div>
+                        <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>
+                          {metricTitle} · {TYPE_LABELS[goal.goalType] ?? goal.goalType} · {PERIOD_LABELS[goal.period] ?? goal.period}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto' }} onClick={() => openGoalWizard(goal.metricId, goal.goalId)}>
+                          <Edit size={14} />
+                        </Button>
+                        <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', color: '#ef4444' }} onClick={() => handleDeleteGoal(goal.goalId)}>
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </div>
+                    {pct !== null ? (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                          <span style={{ color: '#6b7280' }}>{prog?.periodLabel ?? ''}</span>
+                          <span style={{ fontWeight: 600, color: barColor }}>
+                            {isOnTrack === true && <CheckCircle2 size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
+                            {Math.round(pct)}%
+                          </span>
+                        </div>
+                        <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 12, color: '#9ca3af' }}>No progress data yet</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : viewMode !== 'metric-history' ? (
         <div className="mydata-cards-grid">
           {(() => {
             const points = records.dataPoints ?? {};
@@ -916,32 +1095,24 @@ export default function App() {
                         }
                       }
                     }
-                  } else {
-                    // latest mode: use the most recent entry overall
-                    if (entries.length > 0) {
-                      lastEntry = entries[entries.length - 1];
-                    } else if (data.dayValue) {
-                      // Fallback to legacy map: pick the latest key
-                      const keys = Object.keys(data.dayValue);
-                      keys.sort((a, b) => {
-                        const pa = Date.parse(a) || Number(a) || 0;
-                        const pb = Date.parse(b) || Number(b) || 0;
-                        return pa - pb;
-                      });
-                      const k = keys[keys.length - 1];
-                      if (k) {
-                        const rec = data.dayValue[k];
-                        const tsK = Number(k) || Date.parse(k.length === 10 ? `${k}T00:00:00` : k);
-                        lastEntry = { ts: tsK, value: rec?.value ?? null, updatedAt: rec?.updatedAt, source: rec?.source };
+                  } else if (viewMode === 'current') {
+                    // current/today mode: show only today's entries
+                    const todayStart = new Date();
+                    todayStart.setHours(0, 0, 0, 0);
+                    const startMs = todayStart.getTime();
+                    const endMs = startMs + 24 * 60 * 60 * 1000;
+                    for (let i = entries.length - 1; i >= 0; i--) {
+                      const e = entries[i];
+                      if (e.ts >= startMs && e.ts < endMs) {
+                        if (!lastEntry) lastEntry = e;
+                        entryCount++;
                       }
                     }
-                    // In latest mode, count total entries
-                    entryCount = entries.length;
                   }
-                  const value = lastEntry ? lastEntry.value : (viewMode === 'day' ? fallbackValue : null);
+                  const value = lastEntry ? lastEntry.value : (viewMode === 'day' || viewMode === 'current' ? fallbackValue : null);
                   const timestamp = lastEntry ? lastEntry.ts : null;
                   const source = lastEntry ? lastEntry.source : null;
-                  const updatedAt = lastEntry ? (lastEntry.updatedAt ?? new Date().toISOString()) : (viewMode === 'day' ? fallbackUpdated : null);
+                  const updatedAt = lastEntry ? (lastEntry.updatedAt ?? new Date().toISOString()) : (viewMode === 'day' || viewMode === 'current' ? fallbackUpdated : null);
                   return { metric: metricName, ...config, value, timestamp, source, updatedAt, entryCount };
                 });
                 const hasValue = metricValues.some(mv => mv.value !== null && mv.value !== undefined);
@@ -1103,8 +1274,8 @@ export default function App() {
                               })}
                             </div>
                             <p className="card-updated">
-                              {displayTimestamp ? (viewMode === 'latest' ? fmtDateTime(new Date(displayTimestamp)) : fmtTime(new Date(displayTimestamp))) : "—"}
-                              {totalEntries > 1 && viewMode !== 'latest' && (meta.metricNames?.length === 1) && (
+                              {displayTimestamp ? fmtTime(new Date(displayTimestamp)) : "—"}
+                              {totalEntries > 1 && (meta.metricNames?.length === 1) && (
                                 <span style={{ marginLeft: 8, fontSize: '0.85em', color: '#9ca3af' }}>
                                   ({totalEntries} entries)
                                 </span>
@@ -1115,6 +1286,64 @@ export default function App() {
                                 {sources.join(', ')}
                               </p>
                             )}
+                            {(() => {
+                              // Streak is a present-tense motivator — only meaningful on today or current view
+                              const isCurrentDay = viewMode === 'current' || toKey(selectedDate) === toKey(new Date());
+                              if (!isCurrentDay) return null;
+                              const primaryMetric = meta.metricNames?.[0];
+                              const cfg = primaryMetric ? metricConfig[primaryMetric] : null;
+                              const daily  = cfg?.currentDailyStreak  ?? 0;
+                              const weekly = cfg?.currentWeeklyStreak ?? 0;
+                              if (daily >= 2) {
+                                return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {daily} day streak</p>;
+                              }
+                              if (weekly >= 2) {
+                                return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {weekly} week streak</p>;
+                              }
+                              return null;
+                            })()}
+                            {(() => {
+                              // In 'current' mode, show the last recorded value+date if it was before today
+                              if (viewMode !== 'current') return null;
+                              const primaryMetric = meta.metricNames?.[0];
+                              const allEntries = primaryMetric ? (records.dataPoints?.[primaryMetric]?.entries ?? []) : [];
+                              if (!allEntries.length) return null;
+                              const lastOverall = allEntries[allEntries.length - 1];
+                              const todayKey = toKey(new Date());
+                              const lastKey = toKey(new Date(lastOverall.ts));
+                              if (lastKey === todayKey) return null; // today's data is already the primary display
+                              const cfg = primaryMetric ? metricConfig[primaryMetric] : null;
+                              let lastValStr;
+                              if (cfg?.kind === 'slider') lastValStr = String(lastOverall.value);
+                              else if (cfg?.kind === 'switch') lastValStr = lastOverall.value === true ? 'Yes' : lastOverall.value === false ? 'No' : '—';
+                              else lastValStr = `${lastOverall.value ?? '—'}${cfg?.uom ? ` ${cfg.uom}` : ''}`;
+                              const lastDate = new Date(lastOverall.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                              return (
+                                <p style={{ fontSize: '0.72em', color: '#9ca3af', marginTop: 4 }}>
+                                  Last: {lastValStr} on {lastDate}
+                                </p>
+                              );
+                            })()}
+                            {(() => {
+                              const metricGoals = goals.filter(g => g.metricId === meta.cardName && g.isActive);
+                              if (!metricGoals.length) return null;
+                              const firstGoal = metricGoals[0];
+                              const prog = goalProgress[firstGoal.goalId];
+                              if (!prog) return null;
+                              const pct = (prog.pct ?? 0) * 100;
+                              const isLBC = firstGoal.goalType === 'cumulative' && firstGoal.direction === 'lower_is_better';
+                              const barColor = isLBC
+                                ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
+                                : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
+                              return (
+                                <div style={{ marginTop: 6, width: '80%', margin: '6px auto 0' }}>
+                                  <div style={{ width: '100%', height: 3, background: '#e5e7eb', borderRadius: 2, overflow: 'hidden' }}>
+                                    <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
+                                  </div>
+                                  <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>{Math.round(pct)}% {isLBC ? 'of limit' : 'of goal'}</div>
+                                </div>
+                              );
+                            })()}
                           </>
                         ) : (
                           <p className="card-updated">No data yet</p>
@@ -1136,6 +1365,23 @@ export default function App() {
                     <div className="card-menu-popup">
                       <button
                         className="card-menu-item"
+                        onClick={() => {
+                          setPrevViewMode(viewMode);
+                          setHistoryMetric(meta.cardName);
+                          setViewMode('metric-history');
+                          setCardMenuOpen(null);
+                        }}
+                      >
+                        View History
+                      </button>
+                      <button
+                        className="card-menu-item"
+                        onClick={() => openGoalWizard(meta.cardName)}
+                      >
+                        {goals.some(g => g.metricId === meta.cardName && g.isActive) ? 'Edit Goal' : 'Set a Goal'}
+                      </button>
+                      <button
+                        className="card-menu-item"
                         onClick={() => handleDeactivateCard(meta.cardName, meta.cardName)}
                       >
                         Remove from dashboard
@@ -1155,7 +1401,87 @@ export default function App() {
         </div>
       ) : (
         // Metric history view
-        <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 8px' }}>
+        <div style={{ maxWidth: 680, margin: '0 auto', padding: '0 8px 80px' }}>
+          {/* ── Back button ── */}
+          <button
+            onClick={() => setViewMode(prevViewMode)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: '#6b7280', fontSize: 13, cursor: 'pointer', padding: '4px 0 12px', fontWeight: 500 }}
+          >
+            <ChevronLeft size={15} /> Back
+          </button>
+
+          {/* ── Streak strip ── */}
+          {(() => {
+            const cfg = metricConfig[historyMetric] ?? {};
+            const daily = cfg.currentDailyStreak ?? 0;
+            const weekly = cfg.currentWeeklyStreak ?? 0;
+            if (!daily && !weekly) return null;
+            return (
+              <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                {daily >= 1 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600, color: '#b45309' }}>
+                    🔥 {daily} day streak
+                  </span>
+                )}
+                {weekly >= 1 && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600, color: '#b45309' }}>
+                    🔥 {weekly} week streak
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── Goal summary card(s) ── */}
+          {(() => {
+            const metricGoals = goals.filter(g => g.metricId === historyMetric && g.isActive);
+            if (!metricGoals.length) return null;
+            return metricGoals.map(goal => {
+              const prog = goalProgress[goal.goalId];
+              if (!prog) return null;
+              const pctDisplay = prog.pct != null ? Math.round(prog.pct * 100) : null;
+              const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
+              const trackColor = prog.isOnTrack == null ? '#9ca3af' : prog.isOnTrack ? '#10b981' : '#f59e0b';
+              const barColor = isLBC && pctDisplay != null
+                ? (pctDisplay <= 60 ? '#10b981' : pctDisplay <= 85 ? '#f59e0b' : '#ef4444')
+                : trackColor;
+              const trackLabel = prog.isOnTrack == null ? 'No data' : prog.isOnTrack ? 'On Track' : 'Off Track';
+              let currentDisplay = null;
+              if (prog.current != null) {
+                const cfg = metricConfig[historyMetric] ?? {};
+                const uom = cfg.uom ?? '';
+                if (goal.goalType === 'range') {
+                  currentDisplay = `Avg ${prog.current}${uom ? ` ${uom}` : ''} · ${prog.inRangeCount ?? 0} of ${prog.entryCount ?? 0} in range`;
+                } else if (goal.goalType === 'streak') {
+                  currentDisplay = `${prog.current} day${prog.current !== 1 ? 's' : ''} / ${prog.target} day target`;
+                } else {
+                  const targetStr = prog.target != null ? ` / ${prog.target}${uom ? ` ${uom}` : ''}` : '';
+                  currentDisplay = `${prog.current}${uom ? ` ${uom}` : ''}${targetStr}`;
+                }
+              }
+              return (
+                <div key={goal.goalId} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{goal.name}</div>
+                      {prog.periodLabel && <div style={{ fontSize: 12, color: '#9ca3af' }}>{prog.periodLabel}</div>}
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: trackColor, whiteSpace: 'nowrap', marginLeft: 8 }}>{trackLabel}</span>
+                  </div>
+                  {pctDisplay != null && (
+                    <div style={{ marginBottom: 4 }}>
+                      <div style={{ height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(pctDisplay, 100)}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{pctDisplay}% {isLBC ? 'of limit used' : 'complete'}{currentDisplay ? ` · ${currentDisplay}` : ''}</div>
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+
+          {/* ── Entry list ── */}
           {(() => {
             const cfg = metricConfig[historyMetric] || { kind: 'singleValue', uom: '' };
             const dp = (records.dataPoints ?? {})[historyMetric] ?? {};
@@ -1166,6 +1492,7 @@ export default function App() {
               if (cfg.kind === 'switch') return v === true ? 'Yes' : v === false ? 'No' : '—';
               return `${v ?? '—'}${cfg.uom ? ` ${cfg.uom}` : ''}`;
             };
+
             if (entries.length === 0) {
               const toIsoDate = (d) => {
                 const yyyy = d.getFullYear();
@@ -1178,8 +1505,8 @@ export default function App() {
               const defaultTime = isToday
                 ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
                 : '09:00';
-              const cfg = metricConfig[historyMetric] || {};
-              const title = cfg.title || cfg.prompt || toSentenceCase(historyMetric);
+              const cfgEmpty = metricConfig[historyMetric] || {};
+              const title = cfgEmpty.title || cfgEmpty.prompt || toSentenceCase(historyMetric);
               return (
                 <div style={{ textAlign: 'center', color: '#6b7280', padding: '16px 0' }}>
                   <div style={{ marginBottom: 10 }}>No data yet</div>
@@ -1216,8 +1543,8 @@ export default function App() {
                       key={e.ts}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e5e7eb', borderRadius: 6, padding: '8px 10px', background: '#fff', cursor: 'pointer' }}
                       onClick={() => {
-                        const cfg = metricConfig[historyMetric] || {};
-                        const title = cfg.title || cfg.prompt || toSentenceCase(historyMetric);
+                        const cfgClick = metricConfig[historyMetric] || {};
+                        const title = cfgClick.title || cfgClick.prompt || toSentenceCase(historyMetric);
                         const toIsoDate = (d) => {
                           const yyyy = d.getFullYear();
                           const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -1242,8 +1569,8 @@ export default function App() {
                         <div style={{ fontWeight: 600 }}>{dateStr}</div>
                         <div style={{ fontSize: 12, color: '#6b7280' }}>{timeStr}</div>
                       </div>
-                      <div style={{ fontSize: 16, fontWeight: 600 }}>
-                        {formatValue(e.value)}
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 16, fontWeight: 600 }}>{formatValue(e.value)}</div>
                       </div>
                     </div>
                   );
@@ -1276,160 +1603,6 @@ export default function App() {
             <DialogFooter>
               <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
               <Button onClick={() => { setViewMode('day'); setOpen(null); }}>Use this date</Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-
-        {/* Configure visible cards (drag & drop) */}
-        {open?.type === "configure" && (
-          <DialogContent>
-            <DialogHeader style={{ textAlign: "center", marginBottom: 16 }}>
-              <DialogTitle>{user.firstName}'s dashboard</DialogTitle>
-            </DialogHeader>
-            {(() => {
-              const tempActive = open?.tempActive ?? [];
-              const available = cardDefinitions
-                .filter(c => !tempActive.includes(c.cardName))
-                .slice()
-                .sort((a, b) => a.title.localeCompare(b.title));
-
-              const onDropToActive = (e) => {
-                e.preventDefault();
-                let data;
-                try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { data = null; }
-                if (!data || !data.name) return;
-                if (!tempActive.includes(data.name)) {
-                  setOpen({ ...open, tempActive: [...tempActive, data.name] });
-                }
-              };
-              const onDropToAvailable = (e) => {
-                e.preventDefault();
-                let data;
-                try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { data = null; }
-                if (!data || !data.name) return;
-                if (tempActive.includes(data.name)) {
-                  setOpen({ ...open, tempActive: tempActive.filter(n => n !== data.name) });
-                }
-              };
-
-              const insertIntoActiveAt = (name, targetIndex) => {
-                const current = [...tempActive];
-                const existingIdx = current.indexOf(name);
-                // remove if already present
-                if (existingIdx !== -1) {
-                  current.splice(existingIdx, 1);
-                  // if removed index is before target, shift target left
-                  if (existingIdx < targetIndex) targetIndex = Math.max(0, targetIndex - 1);
-                }
-                // clamp target
-                if (targetIndex < 0) targetIndex = 0;
-                if (targetIndex > current.length) targetIndex = current.length;
-                // insert
-                current.splice(targetIndex, 0, name);
-                setOpen({ ...open, tempActive: current, tempOverIndex: undefined, tempOverList: undefined });
-              };
-
-              const draggableItem = (c, from, index) => {
-                const Icon = c.icon ?? Activity;
-                const iconColor = c.color ?? (c.metricNames.some(name => metricConfig[name].kind === "slider") ? "#4f46e5" : "#1530E8");
-                return (
-                  <li
-                    key={c.cardName}
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.effectAllowed = 'move';
-                      e.dataTransfer.setData('text/plain', JSON.stringify({ name: c.cardName, from }));
-                    }}
-                    className="dnd-item"
-                    aria-label={`${c.title} card`}
-                    onDragOver={(e) => {
-                      if (from === 'active' && typeof index === 'number') {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = 'move';
-                        if (open?.tempOverIndex !== index || open?.tempOverList !== 'active') {
-                          setOpen({ ...open, tempOverIndex: index, tempOverList: 'active' });
-                        }
-                      }
-                    }}
-                    onDragLeave={() => {
-                      if (open?.tempOverIndex === index && open?.tempOverList === 'active') {
-                        setOpen({ ...open, tempOverIndex: undefined, tempOverList: undefined });
-                      }
-                    }}
-                    onDrop={(e) => {
-                      if (typeof index !== 'number') return;
-                      e.preventDefault();
-                      let data;
-                      try { data = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { data = null; }
-                      if (!data || !data.name) return;
-                      insertIntoActiveAt(data.name, index);
-                    }}
-                  >
-                    <Icon style={{ width: 16, height: 16, color: iconColor }} className="dnd-icon" />
-                    <span className="dnd-title">{c.title}</span>
-                  </li>
-                );
-              };
-
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, margin: '8px 0 0 0' }}>
-                  <div className="dnd-column">
-                    <div className="dnd-column-title">Available cards</div>
-                    <ul
-                      className="dnd-list"
-                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                      onDrop={onDropToAvailable}
-                    >
-                      {available.length === 0 ? (
-                        <li className="dnd-empty">No available cards</li>
-                      ) : (
-                        available.map(c => draggableItem(c, 'available'))
-                      )}
-                    </ul>
-                  </div>
-                  <div className="dnd-column">
-                    <div className="dnd-column-title">Active cards</div>
-                    <ul
-                      className="dnd-list"
-                      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                      onDrop={onDropToActive}
-                    >
-                      {tempActive.length === 0 ? (
-                        <li className="dnd-empty">Drag cards here</li>
-                      ) : (
-                        tempActive.map((name, index) => {
-                          const c = cardDefinitions.find(cd => cd.cardName === name);
-                          const isInsertBefore = open?.tempOverList === 'active' && open?.tempOverIndex === index;
-                          return c ? (
-                            <div key={c.cardName} style={{ position: 'relative' }}>
-                              {isInsertBefore && (
-                                <div style={{
-                                  position: 'absolute',
-                                  top: -4,
-                                  left: 0,
-                                  right: 0,
-                                  height: 0,
-                                  borderTop: '2px solid #2563eb'
-                                }} />
-                              )}
-                              {draggableItem(c, 'active', index)}
-                            </div>
-                          ) : null;
-                        })
-                      )}
-                    </ul>
-                  </div>
-                </div>
-              );
-            })()}
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-              <Button onClick={() => {
-                const nextActive = [...(open?.tempActive ?? [])];
-                setActiveCards(nextActive);
-                try { localStorage.setItem('activeCards', JSON.stringify(nextActive)); } catch { }
-                setOpen(null);
-              }}>Save</Button>
             </DialogFooter>
           </DialogContent>
         )}
@@ -2328,6 +2501,24 @@ export default function App() {
                       </div>
                     </div>
                   );
+                } else if (kind === 'text') {
+                  return (
+                    <div key={metricName} style={{ marginBottom: 12 }}>
+                      <Label htmlFor={metricName}>{promptText}</Label>
+                      <Input
+                        id={metricName}
+                        type="text"
+                        style={{ width: "auto" }}
+                        value={open.metricValues?.[idx]?.value ?? ""}
+                        onChange={(e) => {
+                          const newValue = e.target.value !== '' ? e.target.value : null;
+                          const updatedValues = [...(open.metricValues ?? [])];
+                          updatedValues[idx] = { ...updatedValues[idx], value: newValue };
+                          setOpen({ ...open, metricValues: updatedValues });
+                        }}
+                      />
+                    </div>
+                  );
                 } else {
                   return (
                     <div key={metricName} style={{ marginBottom: 12 }}>
@@ -2338,7 +2529,7 @@ export default function App() {
                         style={{ width: "auto" }}
                         value={open.metricValues?.[idx]?.value ?? ""}
                         onChange={(e) => {
-                          const newValue = e.target.value ? Number(e.target.value) : null;
+                          const newValue = e.target.value !== '' ? Number(e.target.value) : null;
                           const updatedValues = [...(open.metricValues ?? [])];
                           updatedValues[idx] = { ...updatedValues[idx], value: newValue };
                           setOpen({ ...open, metricValues: updatedValues });
@@ -2510,9 +2701,12 @@ export default function App() {
                   if ((isSingle || isMultiGrouped) && open?.entryAction === 'update' && typeof open?.editEntryTs === 'number') {
                     // Update the existing entry/grouped reading (replace, and move if timestamp changed)
                     open.metricNames.forEach((metricName, idx) => {
+                      const cfg = metricConfig[metricName];
+                      const rawValue = open.metricValues?.[idx]?.value;
+                      const inputValue = rawValue != null ? rawValue : (cfg?.kind === 'slider' ? (cfg?.logicalMin ?? 0) : rawValue);
                       updateDayValues({
                         metric: metricName,
-                        inputValue: open.metricValues?.[idx]?.value,
+                        inputValue,
                         ts,
                         editTs: open.editEntryTs,
                       });
@@ -2520,13 +2714,267 @@ export default function App() {
                   } else {
                     // Add new entry (collision check already handled above with confirmation)
                     open.metricNames.forEach((metricName, idx) => {
-                      updateDayValues({ metric: metricName, inputValue: open.metricValues?.[idx]?.value, ts });
+                      const cfg = metricConfig[metricName];
+                      const rawValue = open.metricValues?.[idx]?.value;
+                      const inputValue = rawValue != null ? rawValue : (cfg?.kind === 'slider' ? (cfg?.logicalMin ?? 0) : rawValue);
+                      updateDayValues({ metric: metricName, inputValue, ts });
                     });
                   }
                   setOpen(null);
                 }}>Save</Button>
               </DialogFooter>
             )}
+          </DialogContent>
+        )}
+
+        {/* Goal Wizard */}
+        {open?.type === 'goal-wizard' && (
+          <DialogContent className="narrow-dialog">
+            <DialogHeader>
+              <DialogTitle>
+                {open.editGoalId ? 'Edit Goal' : 'Set a Goal'}{open.metricTitle ? ` — ${open.metricTitle}` : ''}
+              </DialogTitle>
+            </DialogHeader>
+
+            {/* ── Screen 1: Template picker ── */}
+            {open.screen === 'templates' && (() => {
+              const templates = METRIC_GOAL_TEMPLATES[open.metricId] ?? [];
+              return (
+                <>
+                  <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
+                    {templates.map(tpl => (
+                      <button
+                        key={tpl.templateId}
+                        onClick={() => {
+                          const todayIso = new Date().toISOString().split('T')[0];
+                          const d = {
+                            ...GOAL_DEFAULTS,
+                            metricId: open.metricId,
+                            name: tpl.name,
+                            goalType: tpl.goalType,
+                            period: tpl.period,
+                            direction: tpl.direction,
+                            aggregation: tpl.aggregation,
+                            targetValue: tpl.suggestedTarget ?? null,
+                            targetMin: tpl.suggestedMin ?? null,
+                            targetMax: tpl.suggestedMax ?? null,
+                            streakTarget: tpl.suggestedStreak ?? null,
+                            startDate: todayIso,
+                          };
+                          setOpen({ ...open, screen: 'configure', template: tpl, draft: d });
+                        }}
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                          padding: '12px 14px', border: '1px solid #e5e7eb', borderRadius: 8,
+                          background: 'white', cursor: 'pointer', textAlign: 'left', width: '100%',
+                        }}
+                        onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
+                        onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{tpl.name}</div>
+                        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                          {tpl.period.replace('_', ' ')} · {tpl.goalType.replace(/_/g, ' ')}
+                        </div>
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => {
+                        const todayIso = new Date().toISOString().split('T')[0];
+                        setOpen({ ...open, screen: 'configure', template: null, draft: { ...GOAL_DEFAULTS, metricId: open.metricId, name: '', startDate: todayIso } });
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '12px 14px', border: '1px dashed #d1d5db', borderRadius: 8,
+                        background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%',
+                      }}
+                    >
+                      <Plus size={16} style={{ color: '#6b7280', flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>Custom Goal</div>
+                        <div style={{ fontSize: 12, color: '#9ca3af' }}>Set your own parameters</div>
+                      </div>
+                    </button>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+                  </DialogFooter>
+                </>
+              );
+            })()}
+
+            {/* ── Screen 2: Configure ── */}
+            {open.screen === 'configure' && (() => {
+              const draft = open.draft ?? {};
+              const templates = METRIC_GOAL_TEMPLATES[open.metricId] ?? [];
+              const GOAL_TYPE_OPTIONS = [
+                { value: 'target_value', label: 'Target Value' },
+                { value: 'cumulative',   label: 'Cumulative' },
+                { value: 'range',        label: 'Range' },
+                { value: 'streak',       label: 'Streak' },
+                { value: 'best_of',      label: 'Personal Best' },
+              ];
+              return (
+                <>
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    <div>
+                      <Label>Goal Name</Label>
+                      <Input
+                        value={draft.name ?? ''}
+                        placeholder="e.g. Reach target weight"
+                        onChange={e => setOpen({ ...open, draft: { ...draft, name: e.target.value } })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Goal Type</Label>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                        {GOAL_TYPE_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setOpen({ ...open, draft: { ...draft, goalType: opt.value } })}
+                            style={{
+                              padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid',
+                              borderColor: draft.goalType === opt.value ? '#6366f1' : '#d1d5db',
+                              background: draft.goalType === opt.value ? '#eef2ff' : 'white',
+                              color: draft.goalType === opt.value ? '#4f46e5' : '#374151',
+                              fontWeight: draft.goalType === opt.value ? 600 : 400,
+                            }}
+                          >{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {(draft.goalType === 'target_value' || draft.goalType === 'cumulative' || draft.goalType === 'best_of') && (
+                      <div>
+                        <Label>Target Value</Label>
+                        <Input
+                          type="number"
+                          style={{ width: 'auto' }}
+                          value={draft.targetValue ?? ''}
+                          onChange={e => setOpen({ ...open, draft: { ...draft, targetValue: e.target.value !== '' ? Number(e.target.value) : null } })}
+                        />
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          {[{ v: 'lower_is_better', label: '↓ Lower is better' }, { v: 'higher_is_better', label: '↑ Higher is better' }].map(d => (
+                            <button
+                              key={d.v}
+                              onClick={() => setOpen({ ...open, draft: { ...draft, direction: d.v } })}
+                              style={{
+                                padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid',
+                                borderColor: draft.direction === d.v ? '#6366f1' : '#d1d5db',
+                                background: draft.direction === d.v ? '#eef2ff' : 'white',
+                                color: draft.direction === d.v ? '#4f46e5' : '#374151',
+                                fontWeight: draft.direction === d.v ? 600 : 400,
+                              }}
+                            >{d.label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {draft.goalType === 'range' && (
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <Label>Min</Label>
+                          <Input type="number" style={{ width: 'auto' }} value={draft.targetMin ?? ''} onChange={e => setOpen({ ...open, draft: { ...draft, targetMin: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <Label>Max</Label>
+                          <Input type="number" style={{ width: 'auto' }} value={draft.targetMax ?? ''} onChange={e => setOpen({ ...open, draft: { ...draft, targetMax: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                        </div>
+                      </div>
+                    )}
+                    {draft.goalType === 'streak' && (
+                      <div>
+                        <Label>Streak Target (consecutive days)</Label>
+                        <Input
+                          type="number"
+                          style={{ width: 'auto' }}
+                          value={draft.streakTarget ?? ''}
+                          onChange={e => setOpen({ ...open, draft: { ...draft, streakTarget: e.target.value !== '' ? Number(e.target.value) : null } })}
+                        />
+                      </div>
+                    )}
+                    {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
+                  </div>
+                  <DialogFooter>
+                    <Button variant="secondary" onClick={() => {
+                      if (templates.length > 0 && !open.editGoalId) {
+                        setOpen({ ...open, screen: 'templates', saveError: undefined });
+                      } else {
+                        setOpen(null);
+                      }
+                    }}>
+                      {templates.length > 0 && !open.editGoalId ? 'Back' : 'Cancel'}
+                    </Button>
+                    <Button onClick={() => {
+                      const d = open.draft ?? {};
+                      if (!d.name?.trim()) { setOpen({ ...open, saveError: 'Please enter a goal name.' }); return; }
+                      setOpen({ ...open, screen: 'period', saveError: undefined });
+                    }}>Next</Button>
+                  </DialogFooter>
+                </>
+              );
+            })()}
+
+            {/* ── Screen 3: Period ── */}
+            {open.screen === 'period' && (() => {
+              const draft = open.draft ?? {};
+              const PERIOD_OPTIONS = [
+                { value: 'daily',    label: 'Daily' },
+                { value: 'weekly',   label: 'Weekly' },
+                { value: 'monthly',  label: 'Monthly' },
+                { value: 'rolling',  label: 'Rolling' },
+                { value: 'all_time', label: 'All Time' },
+              ];
+              return (
+                <>
+                  <div style={{ display: 'grid', gap: 14 }}>
+                    <div>
+                      <Label>Period</Label>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                        {PERIOD_OPTIONS.map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setOpen({ ...open, draft: { ...draft, period: opt.value } })}
+                            style={{
+                              padding: '6px 14px', fontSize: 13, borderRadius: 6, cursor: 'pointer', border: '1px solid',
+                              borderColor: draft.period === opt.value ? '#6366f1' : '#d1d5db',
+                              background: draft.period === opt.value ? '#eef2ff' : 'white',
+                              color: draft.period === opt.value ? '#4f46e5' : '#374151',
+                              fontWeight: draft.period === opt.value ? 600 : 400,
+                            }}
+                          >{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {draft.period === 'rolling' && (
+                      <div>
+                        <Label>Rolling Window (days)</Label>
+                        <Input
+                          type="number"
+                          style={{ width: 'auto' }}
+                          value={draft.periodDays ?? ''}
+                          onChange={e => setOpen({ ...open, draft: { ...draft, periodDays: e.target.value !== '' ? Number(e.target.value) : null } })}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <Label>End Date (optional)</Label>
+                      <Input
+                        type="date"
+                        style={{ width: 'auto' }}
+                        value={draft.endDate ?? ''}
+                        onChange={e => setOpen({ ...open, draft: { ...draft, endDate: e.target.value || null } })}
+                      />
+                    </div>
+                    {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
+                  </div>
+                  <DialogFooter>
+                    <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'configure', saveError: undefined })}>Back</Button>
+                    <Button onClick={handleSaveGoal} disabled={open.isSaving}>
+                      {open.isSaving ? 'Saving…' : open.editGoalId ? 'Update Goal' : 'Save Goal'}
+                    </Button>
+                  </DialogFooter>
+                </>
+              );
+            })()}
           </DialogContent>
         )}
       </Dialog>

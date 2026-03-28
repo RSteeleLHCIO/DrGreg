@@ -79,6 +79,10 @@ Compress-Archive -Force -Path metric-subscriptions-get.mjs, node_modules, packag
 Compress-Archive -Force -Path metric-subscribe.mjs, node_modules, package.json -DestinationPath metric-subscribe.zip
 Compress-Archive -Force -Path metric-entry.mjs, node_modules, package.json -DestinationPath metric-entry.zip
 Compress-Archive -Force -Path metric-entries-get.mjs, node_modules, package.json -DestinationPath metric-entries-get.zip
+Compress-Archive -Force -Path goal-save.mjs, node_modules, package.json -DestinationPath goal-save.zip
+Compress-Archive -Force -Path goals-get.mjs, node_modules, package.json -DestinationPath goals-get.zip
+Compress-Archive -Force -Path goal-delete.mjs, node_modules, package.json -DestinationPath goal-delete.zip
+Compress-Archive -Force -Path goal-progress-get.mjs, node_modules, package.json -DestinationPath goal-progress-get.zip
 ```
 
 ---
@@ -150,6 +154,10 @@ Each Lambda needs permission to read and write the DynamoDB table.
 | PUT  | `/entry`            | `tobbihealth-metric-entry` |
 | DELETE | `/entry`          | `tobbihealth-metric-entry` |
 | GET  | `/entries`          | `tobbihealth-metric-entries-get` |
+| PUT  | `/goal`             | `tobbihealth-goal-save` |
+| GET  | `/goals`            | `tobbihealth-goals-get` |
+| DELETE | `/goal`           | `tobbihealth-goal-delete` |
+| GET  | `/goal/progress`    | `tobbihealth-goal-progress-get` |
 
 4. Under **CORS**, set:
    - **Allow origin**: `http://localhost:5173`

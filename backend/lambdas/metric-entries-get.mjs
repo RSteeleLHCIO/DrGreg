@@ -43,34 +43,49 @@ const JWT_SECRET  = process.env.JWT_SECRET  || "";
 const VALID_METRIC = /^[a-z0-9-]+$/;
 
 export const handler = async (event) => {
+  console.log("[metric-entries-get] invoked method=%s path=%s qs=%s",
+    event.httpMethod || event.requestContext?.http?.method,
+    event.rawPath || event.path,
+    JSON.stringify(event.queryStringParameters));
+
   const corsHeaders = {
     "Access-Control-Allow-Origin":  CORS_ORIGIN,
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
   };
 
-  if (event.httpMethod === "OPTIONS") {
+  // Support API Gateway payload format v1 (httpMethod) and v2 (requestContext.http.method)
+  const method = event.httpMethod || event.requestContext?.http?.method;
+
+  if (method === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
 
-  if (event.httpMethod !== "GET") {
+  if (method !== "GET") {
+    console.warn("[metric-entries-get] 405 — unexpected method:", method);
     return reply(405, { error: "Method not allowed" }, corsHeaders);
   }
 
   try {
     const userId = await authenticate(event);
-    if (!userId) return reply(401, { error: "Unauthorized" }, corsHeaders);
+    if (!userId) {
+      console.warn("[metric-entries-get] 401 — authentication failed");
+      return reply(401, { error: "Unauthorized" }, corsHeaders);
+    }
+    console.log("[metric-entries-get] authenticated userId:", userId);
 
     const qs   = event.queryStringParameters || {};
     const from = parseInt(qs.from, 10);
     const to   = parseInt(qs.to,   10);
 
     if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) {
+      console.warn("[metric-entries-get] 400 — invalid from/to:", from, to);
       return reply(400, { error: "from and to must be finite ms-epoch numbers with from ≤ to." }, corsHeaders);
     }
 
     const skFrom = `TS#${String(from).padStart(16, "0")}`;
     const skTo   = `TS#${String(to).padStart(16, "0")}`;
+    console.log("[metric-entries-get] range SK:", skFrom, "→", skTo);
 
     // Determine which metrics to query
     let metricIds;
@@ -85,7 +100,10 @@ export const handler = async (event) => {
       metricIds = await getActiveMetricIds(userId);
     }
 
+    console.log("[metric-entries-get] querying metricIds:", metricIds);
+
     if (!metricIds.length) {
+      console.log("[metric-entries-get] no active metrics — returning empty");
       return reply(200, { entries: {} }, corsHeaders);
     }
 
@@ -99,11 +117,13 @@ export const handler = async (event) => {
     // Build response object; omit metrics with no entries in range
     const entries = {};
     for (let i = 0; i < metricIds.length; i++) {
+      console.log("[metric-entries-get] metric=%s count=%d", metricIds[i], results[i].length);
       if (results[i].length > 0) {
         entries[metricIds[i]] = results[i];
       }
     }
 
+    console.log("[metric-entries-get] 200 — returning", Object.keys(entries).length, "metrics");
     return reply(200, { entries }, corsHeaders);
 
   } catch (err) {

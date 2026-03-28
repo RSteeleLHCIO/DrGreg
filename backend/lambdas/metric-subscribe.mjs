@@ -62,11 +62,6 @@ export const handler = async (event) => {
       return reply(400, { error: "metricId must be lowercase letters, digits, and hyphens only." }, corsHeaders);
     }
 
-    const BUILTIN_IDS = new Set(['weight','pain','back','headache','tired','temperature','heart','systolic','diastolic','glucose','tylenol','losartan']);
-    if (BUILTIN_IDS.has(metricId)) {
-      return reply(400, { error: "Built-in metrics cannot be subscribed to." }, corsHeaders);
-    }
-
     // ── DELETE: Full unsubscribe — removes the record entirely ───────────
     if (method === "DELETE") {
       await ddb.send(new DeleteCommand({

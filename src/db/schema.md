@@ -14,6 +14,8 @@
    - [MetricEntry](#22-metricentry)
    - [ActiveCards](#23-activecards)
    - [FeatureFlags](#24-featureflags)
+   - [MetricDefinition](#25-metricdefinition)
+   - [Goal](#26-goal)
 3. [Metric Catalogue](#3-metric-catalogue)
 4. [DynamoDB Single-Table Design](#4-dynamodb-single-table-design)
    - [Key Schema](#41-key-schema)
@@ -119,6 +121,90 @@ Stored as attributes on the User item in DynamoDB.
 
 ---
 
+### 2.5 MetricDefinition
+
+Describes a trackable metric. System metrics have `createdBy = "SYSTEM"` and `isPublic = true`; user-created metrics have `createdBy = <userId>` and `isPublic = false`.
+
+| Field                | Type                                         | Required | Notes |
+|---------------------|----------------------------------------------|----------|-------|
+| `metricId`           | string (slug)                                | ✅        | e.g. `"blood-glucose"` |
+| `friendlyName`       | string                                       | ✅        | Display label |
+| `icon`               | string (Lucide icon name)                    | ✅        | From the allowed icon set |
+| `infoUrl`            | string                                       | ❌        | Optional reference URL |
+| `valueType`          | `"numeric"` \| `"boolean"` \| `"string"`     | ✅        | |
+| `isPublic`           | boolean                                      | ✅        | |
+| `createdBy`          | string                                       | ✅        | `"SYSTEM"` or userId |
+| `updatedAt`          | string (ISO-8601)                            | ✅        | |
+| `trackingFlavor`     | `"standalone"` \| `"cumulative"` \| `null`    | ❌        | UI hint for goal creation. `standalone` = each entry is individually significant (weight, HR); `cumulative` = entries aggregate toward a total (steps, meals cooked). `null` = no strong convention. |
+| `defaultAggregation` | `"sum"` \| `"count"` \| `"avg"` \| `"max"` \| `"min"` \| `null` | ❌ | UI hint: pre-selects the aggregation method in the Goal creation dialog. Does not restrict user choice. |
+| `goalTemplates`      | `GoalTemplate[]`                             | ❌        | Ordered list of suggested goal templates shown in the Goal creation wizard. Empty array = no templates. System metrics ship with pre-built templates seeded here. |
+| `sliderEnabled`      | boolean                                      | ❌        | numeric metrics only |
+| `uom`                | string                                       | ❌        | numeric metrics only |
+| `logicalMin`         | number                                       | ❌        | numeric metrics only |
+| `logicalMax`         | number                                       | ❌        | numeric metrics only |
+| `falseTag`           | string                                       | ❌        | boolean metrics only |
+| `trueTag`            | string                                       | ❌        | boolean metrics only |
+
+#### GoalTemplate (nested in `goalTemplates[]`)
+
+A pre-built goal suggestion offered in the Goal creation wizard so users can start from a sensible default. Selecting a template pre-fills the wizard; the user still adjusts target numbers before saving.
+
+| Field               | Type              | Notes |
+|--------------------|-------------------|-------|
+| `templateId`        | string (slug)     | Unique within the metric's template list, e.g. `"weekly-total"` |
+| `name`              | string            | UI label shown in the template picker card |
+| `goalType`          | GoalType enum     | Pre-selects goalType step |
+| `period`            | GoalPeriod enum   | Pre-selects period step |
+| `direction`         | GoalDirection enum | Pre-selects direction |
+| `aggregation`       | AggregationKind enum | Pre-selects aggregation |
+| `suggestedTarget`   | number \| null    | Pre-populates targetValue input; null = leave blank for user to fill |
+| `suggestedMin`      | number \| null    | range goals: pre-populates targetMin |
+| `suggestedMax`      | number \| null    | range goals: pre-populates targetMax |
+| `suggestedStreak`   | number \| null    | streak goals: pre-populates streakTarget |
+
+> Templates are stored in the `goalTemplates` attribute of the MetricDefinition DynamoDB item.  
+> System metric templates are seeded via a one-time script; they can be updated by re-seeding.  
+> User-created metrics default to `goalTemplates: []` (no templates).
+
+---
+
+### 2.6 Goal
+
+A user-defined target attached to a metric. Goals are evaluated by querying metric entries for the goal's period and aggregating them according to `goalType` and `aggregation`.
+
+**Tracking flavors and how they map to `goalType`:**
+
+| `goalType`     | Meaningful fields                        | Example |
+|---------------|------------------------------------------|---------|
+| `target_value` | `targetValue`, `direction`              | "Weigh 160 lbs" |
+| `cumulative`   | `targetValue`, `aggregation`, `period`  | "Walk 50,000 steps this week"; "Cook at home 5 times this week" (boolean metric, `aggregation:"count"`) |
+| `range`        | `targetMin`, `targetMax`, `period`      | "Keep glucose 70–140 mg/dL" |
+| `streak`       | `streakTarget`                          | "Meditate 30 consecutive days" |
+| `best_of`      | `targetValue`, `direction`              | "Run a mile under 8 min"; "Resting HR ≤ 55 bpm" |
+
+| Field           | Type                                                                    | Required | Notes |
+|----------------|-------------------------------------------------------------------------|----------|-------|
+| `goalId`        | string (UUID)                                                           | ✅        | e.g. `"g-4a7b2c1d"` |
+| `metricId`      | string                                                                  | ✅        | FK → MetricDefinition |
+| `userId`        | string                                                                  | ✅        | FK → User |
+| `name`          | string                                                                  | ✅        | Friendly label: "50,000 steps this week" |
+| `goalType`      | `"target_value"` \| `"cumulative"` \| `"range"` \| `"streak"` \| `"best_of"` | ✅ | |
+| `period`        | `"daily"` \| `"weekly"` \| `"monthly"` \| `"rolling"` \| `"all_time"`  | ✅        | Evaluation window |
+| `periodDays`    | number \| null                                                          | ❌        | Only when `period = "rolling"` |
+| `targetValue`   | number \| null                                                          | ❌        | Used by `target_value`, `cumulative`, `best_of` |
+| `targetMin`     | number \| null                                                          | ❌        | Used by `range` |
+| `targetMax`     | number \| null                                                          | ❌        | Used by `range` |
+| `direction`     | `"lower_is_better"` \| `"higher_is_better"` \| `"exact"`               | ✅        | |
+| `aggregation`   | `"sum"` \| `"count"` \| `"avg"` \| `"max"` \| `"min"`                  | ✅        | How entries are combined |
+| `streakTarget`  | number \| null                                                          | ❌        | Used by `streak` |
+| `isActive`      | boolean                                                                 | ✅        | Default: `true` |
+| `startDate`     | string (ISO date)                                                       | ✅        | `"YYYY-MM-DD"` |
+| `endDate`       | string (ISO date) \| null                                               | ❌        | null = ongoing |
+| `createdAt`     | string (ISO-8601)                                                       | ✅        | |
+| `updatedAt`     | string (ISO-8601)                                                       | ✅        | |
+
+---
+
 ## 3. Metric Catalogue
 
 | `metricName`  | Display Title    | Kind          | Unit    | Description                          |
@@ -163,6 +249,7 @@ Stored as attributes on the User item in DynamoDB.
 | Metric entry          | `USER#<userId>#METRIC#<metricName>`       | `TS#<ts_ms_zero_padded>`        |
 | Metric definition     | `METRIC#<metricId>`                       | `#DEF`                          |
 | Metric subscription   | `USER#<userId>`                           | `METRIC#<metricId>`             |
+| Goal                  | `USER#<userId>`                           | `GOAL#<goalId>`                 |
 
 **Example keys:**
 
@@ -307,7 +394,9 @@ Weight reading at 2025-11-01 07:31 UTC:
 ```
 
 > `isPublic: true` for seed/system metrics; `false` for user-created (personal) metrics.  
-> `createdBy: "SYSTEM"` for seed metrics; `userId` for user-created ones.
+> `createdBy: "SYSTEM"` for seed metrics; `userId` for user-created ones.  
+> `trackingFlavor` and `defaultAggregation` are UI hints only — they pre-populate the Goal creation dialog but do not constrain what the user can configure.  
+> `goalTemplates` is a DynamoDB List attribute containing GoalTemplate maps; see §2.5 for the GoalTemplate shape. System metrics ship with pre-built templates seeded here (e.g. weight → "Reach target weight", "Stay within weight range").
 
 ---
 
@@ -352,11 +441,45 @@ Weight reading at 2025-11-01 07:31 UTC:
 | `lastEntryDate` | string (`YYYY-MM-DD`) | Last day an entry was saved |
 | `lastEntryWeek` | string (`YYYY-Www`) | Last ISO week an entry was saved |
 
-> Streak is **not** recalculated on DELETE — that would require a full history scan.
-> `subscribedAt` is preserved across deactivate/re-activate cycles (set via `if_not_exists`).
-> `displayOrder` is a reserved optional field for future card reordering.
-> The inverted GSI-2 (see §4.4) answers "who is subscribed to this metric?".  
+> Streak is **not** recalculated on DELETE — that would require a full history scan.  
+> `subscribedAt` is preserved across deactivate/re-activate cycles (set via `if_not_exists`).  
+> `displayOrder` is a reserved optional field for future card reordering.  
+> The inverted GSI-2 (see §4.4) answers "who is subscribed to this metric?"  
 > `activeCards` array on the user profile is superseded by `isActive` on each subscription record.
+
+---
+
+#### Goal Item
+
+```json
+{
+  "PK":          "USER#u-7f3a1b2c",
+  "SK":          "GOAL#g-4a7b2c1d",
+  "itemType":    "Goal",
+  "goalId":      "g-4a7b2c1d",
+  "metricId":    "steps",
+  "userId":      "u-7f3a1b2c",
+  "name":        "50,000 steps this week",
+  "goalType":    "cumulative",
+  "period":      "weekly",
+  "periodDays":  null,
+  "targetValue": 50000,
+  "targetMin":   null,
+  "targetMax":   null,
+  "direction":   "higher_is_better",
+  "aggregation": "sum",
+  "streakTarget": null,
+  "isActive":    true,
+  "startDate":   "2026-03-24",
+  "endDate":     null,
+  "createdAt":   "2026-03-24T09:00:00.000Z",
+  "updatedAt":   "2026-03-24T09:00:00.000Z"
+}
+```
+
+> All goals for a user are co-located under `PK = "USER#<userId>"` so a single `Query` with `SK begins_with "GOAL#"` retrieves them all.  
+> Progress is **not** stored on the Goal item — it is computed on demand by `goal-progress-get` to avoid stale data.  
+> `periodDays` is only populated when `period = "rolling"`.
 
 ---
 
@@ -390,6 +513,10 @@ Weight reading at 2025-11-01 07:31 UTC:
 | 24 | Save a metric entry + update streak | `PutItem` MetricEntry + `UpdateItem` MetricSubscription (streak fields) |
 | 25 | Get metric entries for a date range (all metrics) | Parallel `Query` per metric-partition: PK=`USER#<id>#METRIC#<name>`, SK `BETWEEN TS#<from> AND TS#<to>` |
 | 26 | Delete a single metric entry | `DeleteItem` PK=`USER#<id>#METRIC#<name>` SK=`TS#<ts>` (no streak recalculation) |
+| 27 | Get all goals for a user | `Query` PK=`USER#<id>`, SK `begins_with GOAL#` |
+| 28 | Save / update a goal | `PutItem` PK=`USER#<id>` SK=`GOAL#<goalId>` |
+| 29 | Delete a goal | `DeleteItem` PK=`USER#<id>` SK=`GOAL#<goalId>` |
+| 30 | Compute goal progress | Lambda `goal-progress-get`: `Query` metric entries for the goal's period, aggregate per `goalType` + `aggregation`, return `{ current, target, pct, isOnTrack }` |
 
 ---
 
@@ -492,5 +619,5 @@ These entities are anticipated but not yet designed:
 | `Program` | A structured health plan (e.g. weight loss program) — backs the **My Programs** section |
 | `Circle` | A care group or social health community — backs the **My Circles** section |
 | `Notification` | Scheduled reminders to log a metric or take a medication |
-| `Goal` | Target value + deadline for a metric (e.g. "weight ≤ 165 by July 2026") |
+
 | `ProviderConnection` | OAuth token storage for Fitbit, Apple Health, etc. (replaces `services[]`) |

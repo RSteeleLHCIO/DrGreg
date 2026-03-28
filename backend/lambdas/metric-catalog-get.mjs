@@ -32,7 +32,10 @@ export const handler = async (event) => {
     "Access-Control-Allow-Methods": "GET, OPTIONS",
   };
 
-  if (event.httpMethod === "OPTIONS") {
+  // Support API Gateway payload format v1 (httpMethod) and v2 (requestContext.http.method)
+  const method = event.httpMethod || event.requestContext?.http?.method;
+
+  if (method === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
 

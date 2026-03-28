@@ -43,29 +43,43 @@ const JWT_SECRET  = process.env.JWT_SECRET  || "";
 const VALID_METRIC = /^[a-z0-9-]+$/;
 
 export const handler = async (event) => {
+  console.log("[metric-entry] invoked method=%s path=%s body=%s",
+    event.httpMethod, event.path, event.body);
+
   const corsHeaders = {
     "Access-Control-Allow-Origin":  CORS_ORIGIN,
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Methods": "PUT, DELETE, OPTIONS",
   };
 
-  if (event.httpMethod === "OPTIONS") {
+  // Support both API Gateway payload format v1 (httpMethod) and v2 (requestContext.http.method)
+  const httpMethod = event.httpMethod || event.requestContext?.http?.method;
+
+  if (httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: corsHeaders, body: "" };
   }
 
-  const method = event.httpMethod;
+  // Support both API Gateway payload format v1 (httpMethod) and v2 (requestContext.http.method)
+  const method = httpMethod;
   if (method !== "PUT" && method !== "DELETE") {
+    console.warn("[metric-entry] 405 — unexpected method:", method);
     return reply(405, { error: "Method not allowed" }, corsHeaders);
   }
 
   try {
     const userId = await authenticate(event);
-    if (!userId) return reply(401, { error: "Unauthorized" }, corsHeaders);
+    if (!userId) {
+      console.warn("[metric-entry] 401 — authentication failed");
+      return reply(401, { error: "Unauthorized" }, corsHeaders);
+    }
+    console.log("[metric-entry] authenticated userId:", userId);
 
     const body = parseBody(event.body);
+    console.log("[metric-entry] parsed body:", JSON.stringify(body));
     const { metric } = body;
 
     if (!metric || !VALID_METRIC.test(metric)) {
+      console.warn("[metric-entry] 400 — invalid metric name:", metric);
       return reply(400, { error: "metric must be lowercase letters, digits, and hyphens only." }, corsHeaders);
     }
 
@@ -73,18 +87,15 @@ export const handler = async (event) => {
     if (method === "DELETE") {
       const { ts } = body;
       if (typeof ts !== "number" || !Number.isFinite(ts)) {
+        console.warn("[metric-entry] 400 DELETE — invalid ts:", ts, typeof ts);
         return reply(400, { error: "ts must be a finite number (ms epoch)." }, corsHeaders);
       }
 
       const skTs = `TS#${String(ts).padStart(16, "0")}`;
-      await ddb.send(new DeleteCommand({
-        TableName: TABLE,
-        Key: {
-          PK: `USER#${userId}#METRIC#${metric}`,
-          SK: skTs,
-        },
-      }));
-
+      const deleteKey = { PK: `USER#${userId}#METRIC#${metric}`, SK: skTs };
+      console.log("[metric-entry] DELETE key:", JSON.stringify(deleteKey));
+      await ddb.send(new DeleteCommand({ TableName: TABLE, Key: deleteKey }));
+      console.log("[metric-entry] DELETE succeeded");
       return reply(200, { ok: true }, corsHeaders);
     }
 
@@ -92,30 +103,38 @@ export const handler = async (event) => {
     const { ts, value, source = "manual entry" } = body;
 
     if (typeof ts !== "number" || !Number.isFinite(ts)) {
+      console.warn("[metric-entry] 400 PUT — invalid ts:", ts, typeof ts);
       return reply(400, { error: "ts must be a finite number (ms epoch)." }, corsHeaders);
     }
     if (value === undefined || value === null) {
+      console.warn("[metric-entry] 400 PUT — value is null/undefined");
       return reply(400, { error: "value is required." }, corsHeaders);
     }
 
+    console.log("[metric-entry] PUT — metric:", metric, "ts:", ts,
+      "value:", value, "(type:", typeof value + ")", "source:", source);
+
     const now       = new Date().toISOString();
     const skTs      = `TS#${String(ts).padStart(16, "0")}`;
+    const putItem   = {
+      PK:        `USER#${userId}#METRIC#${metric}`,
+      SK:        skTs,
+      itemType:  "MetricEntry",
+      userId,
+      metric,
+      ts,
+      value,
+      source,
+      updatedAt: now,
+    };
+    console.log("[metric-entry] PutItem:", JSON.stringify(putItem));
 
     // 1. Write the MetricEntry item.
     await ddb.send(new PutCommand({
       TableName: TABLE,
-      Item: {
-        PK:        `USER#${userId}#METRIC#${metric}`,
-        SK:        skTs,
-        itemType:  "MetricEntry",
-        userId,
-        metric,
-        ts,
-        value,
-        source,
-        updatedAt: now,
-      },
+      Item:      putItem,
     }));
+    console.log("[metric-entry] PutItem succeeded — SK:", skTs);
 
     // 2. Update streak fields on the MetricSubscription item.
     //    Fetch current sub to read lastEntryDate/lastEntryWeek and current streaks.
@@ -140,10 +159,11 @@ export const handler = async (event) => {
     let curWeeklyStreak     = sub?.currentWeeklyStreak     ?? 0;
     let maxWeeklyStreak     = sub?.maxWeeklyStreak         ?? 0;
 
-    // Only advance streak when a newer (or same) day is recorded.
-    // Back-filling an older date does not change streaks.
+    // Advance streak when a newer day is recorded (forward logging).
+    // Also handle the common back-fill case: logging yesterday when today
+    // already exists — the two days are consecutive so the streak should grow.
     if (!lastDate || entryDate > lastDate) {
-      // Daily streak
+      // Daily streak — forward path
       if (lastDate && isConsecutiveDay(lastDate, entryDate)) {
         curDailyStreak += 1;
       } else if (lastDate && entryDate === lastDate) {
@@ -156,7 +176,7 @@ export const handler = async (event) => {
       if (curDailyStreak > maxDailyStreak) maxDailyStreak = curDailyStreak;
       if (!dailyStreakStart) dailyStreakStart = entryDate;
 
-      // Weekly streak
+      // Weekly streak — forward path
       if (lastWeek && isConsecutiveWeek(lastWeek, entryWeek)) {
         curWeeklyStreak += 1;
       } else if (lastWeek && entryWeek === lastWeek) {
@@ -165,9 +185,45 @@ export const handler = async (event) => {
         curWeeklyStreak = 1;
       }
       if (curWeeklyStreak > maxWeeklyStreak) maxWeeklyStreak = curWeeklyStreak;
+
+    } else if (lastDate && entryDate < lastDate) {
+      // Back-fill path: entry is older than the most recent saved date.
+      //
+      // Policy: we reward consistency, not history manipulation.
+      // Only extend the streak if the back-filled date is RECENT —
+      //   daily:  entryDate must be yesterday or today (forgot to log yesterday)
+      //   weekly: entryWeek must be last week or this week (forgot to log last week)
+      // Anything older is treated as historical data entry and does not affect
+      // the current streak counter.
+
+      // Compute recency thresholds from todayDate (already in scope).
+      const d = new Date(`${todayDate}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 1);
+      const yesterdayDate = d.toISOString().slice(0, 10);
+      const lastWeekStr   = toISOWeek(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      // Daily: recent AND immediately before lastDate
+      if (entryDate >= yesterdayDate && isConsecutiveDay(entryDate, lastDate)) {
+        curDailyStreak += 1;
+        dailyStreakStart = entryDate; // streak now starts one day earlier
+        if (curDailyStreak > maxDailyStreak) maxDailyStreak = curDailyStreak;
+      }
+
+      // Weekly: recent AND immediately before lastWeek
+      if (entryWeek >= lastWeekStr && isConsecutiveWeek(entryWeek, lastWeek)) {
+        curWeeklyStreak += 1;
+        if (curWeeklyStreak > maxWeeklyStreak) maxWeeklyStreak = curWeeklyStreak;
+      }
+
+      // Note: lastEntryDate/lastEntryWeek are NOT updated for back-fills —
+      // they always track the most recent entry date, which hasn't changed.
     }
 
     // Persist streak update (only if subscription record exists).
+    console.log("[metric-entry] streak — sub found:", !!sub,
+      "entryDate:", entryDate, "lastDate:", lastDate,
+      "curDailyStreak:", curDailyStreak, "curWeeklyStreak:", curWeeklyStreak);
+
     if (sub) {
       await ddb.send(new UpdateCommand({
         TableName: TABLE,
@@ -199,7 +255,7 @@ export const handler = async (event) => {
     }, corsHeaders);
 
   } catch (err) {
-    console.error("metric-entry error:", err);
+    console.error("[metric-entry] unhandled error:", err);
     return reply(500, { error: "Internal server error" }, corsHeaders);
   }
 };

@@ -168,15 +168,47 @@ export const METRIC_CONFIG = {
  * System-provided metrics:  isPublic = true,  createdBy = "SYSTEM"
  * User-created metrics:     isPublic = false, createdBy = <userId>
  *
+ * @typedef {'standalone'|'cumulative'} TrackingFlavor
+ *
+ *   standalone  → each entry stands alone; trend may be observed but every
+ *                 reading is individually significant (e.g. weight, heart rate)
+ *   cumulative  → entries aggregate toward a period goal; a single reading is
+ *                 insignificant on its own (e.g. steps, home-cooked meals)
+ *
+ * @typedef {'sum'|'count'|'avg'|'max'|'min'} AggregationKind
+ *
+ * @typedef {Object} GoalTemplate
+ * A pre-built goal suggestion attached to a MetricDefinition and offered in the
+ * Goal creation wizard so users can start from a sensible default rather than
+ * configuring every field from scratch.
+ *
+ * @property {string}            templateId       - Unique slug within this metric, e.g. "weekly-total"
+ * @property {string}            name             - UI label shown in the template picker
+ * @property {GoalType}          goalType
+ * @property {GoalPeriod}        period
+ * @property {GoalDirection}     direction
+ * @property {AggregationKind}   aggregation
+ * @property {number|null}       [suggestedTarget]  - Pre-populates the target field; user may change
+ * @property {number|null}       [suggestedMin]     - range goals: pre-populates targetMin
+ * @property {number|null}       [suggestedMax]     - range goals: pre-populates targetMax
+ * @property {number|null}       [suggestedStreak]  - streak goals: pre-populates streakTarget
+ *
  * @typedef {Object} MetricDefinition
- * @property {string}  metricId      - Slug-style id, e.g. "blood-glucose"
- * @property {string}  friendlyName  - Display label, e.g. "Blood Glucose"
- * @property {string}  icon          - Lucide icon name from the allowed set
- * @property {string}  infoUrl       - Optional http/https reference URL
+ * @property {string}             metricId           - Slug-style id, e.g. "blood-glucose"
+ * @property {string}             friendlyName       - Display label, e.g. "Blood Glucose"
+ * @property {string}             icon               - Lucide icon name from the allowed set
+ * @property {string}             infoUrl            - Optional http/https reference URL
  * @property {'numeric'|'boolean'|'string'} valueType
- * @property {boolean} isPublic      - Whether visible to all users in the catalogue
- * @property {string}  createdBy     - userId of creator, or "SYSTEM"
- * @property {string}  updatedAt     - ISO-8601 last-write timestamp
+ * @property {boolean}            isPublic           - Whether visible to all users in the catalogue
+ * @property {string}             createdBy          - userId of creator, or "SYSTEM"
+ * @property {string}             updatedAt          - ISO-8601 last-write timestamp
+ * @property {TrackingFlavor|null}  [trackingFlavor]     - UI hint: how entries are naturally consumed.
+ *                                                         null = no strong convention (user decides).
+ * @property {AggregationKind|null} [defaultAggregation] - UI hint: pre-select in Goal creation
+ *                                                         dialog; does not restrict user choice.
+ * @property {GoalTemplate[]}     [goalTemplates]    - Ordered list of suggested goal templates
+ *                                                     shown in the Goal creation wizard.
+ *                                                     Empty array = no templates (start from scratch).
  *
  * -- numeric only --
  * @property {boolean} [sliderEnabled]
@@ -189,14 +221,138 @@ export const METRIC_CONFIG = {
  * @property {string}  [trueTag]
  */
 export const METRIC_DEFINITION_DEFAULTS = {
-  metricId:     "",
-  friendlyName: "",
-  icon:         "Activity",
-  infoUrl:      "",
-  valueType:    "numeric",
-  isPublic:     false,
-  createdBy:    "",
-  updatedAt:    "",
+  metricId:           "",
+  friendlyName:       "",
+  icon:               "Activity",
+  infoUrl:            "",
+  valueType:          "numeric",
+  isPublic:           false,
+  createdBy:          "",
+  updatedAt:          "",
+  trackingFlavor:     null,
+  defaultAggregation: null,
+  goalTemplates:      [],
+};
+
+// ─── Goal templates for system metrics ───────────────────────────────────────
+
+/**
+ * Suggested goal templates for each system metric.
+ * These are seeded into the MetricDefinition items in DynamoDB and are also
+ * available here for the frontend prototype (no network round-trip required).
+ *
+ * @type {{ [metricName: string]: GoalTemplate[] }}
+ */
+export const METRIC_GOAL_TEMPLATES = {
+  weight: [
+    { templateId: "weight-target",   name: "Reach target weight",      goalType: "target_value", period: "all_time", direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: null },
+    { templateId: "weight-range",    name: "Stay within weight range",  goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: null, suggestedMax: null },
+  ],
+  heart: [
+    { templateId: "heart-target",    name: "Lower resting heart rate",  goalType: "best_of",      period: "monthly",  direction: "lower_is_better",  aggregation: "min",  suggestedTarget: 60 },
+    { templateId: "heart-range",     name: "Keep HR in healthy zone",   goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: 50, suggestedMax: 100 },
+  ],
+  glucose: [
+    { templateId: "glucose-range",   name: "Time in Range (70–140)",    goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: 70, suggestedMax: 140 },
+    { templateId: "glucose-target",  name: "Lower fasting glucose",     goalType: "target_value", period: "all_time", direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 100 },
+  ],
+  systolic: [
+    { templateId: "systolic-range",  name: "Keep systolic in range",    goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: 90, suggestedMax: 120 },
+    { templateId: "systolic-target", name: "Reach systolic target",     goalType: "target_value", period: "all_time", direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 120 },
+  ],
+  diastolic: [
+    { templateId: "diastolic-range", name: "Keep diastolic in range",   goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: 60, suggestedMax: 80 },
+  ],
+  temperature: [
+    { templateId: "temp-range",      name: "Stay in normal range",      goalType: "range",        period: "weekly",   direction: "exact",            aggregation: "avg",  suggestedMin: 97.8, suggestedMax: 99.1 },
+  ],
+  pain: [
+    { templateId: "pain-below",      name: "Keep pain below level",     goalType: "target_value", period: "weekly",   direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 3 },
+    { templateId: "pain-streak",     name: "Pain-free days streak",     goalType: "streak",       period: "all_time", direction: "lower_is_better",  aggregation: "count", suggestedStreak: 7 },
+  ],
+  tired: [
+    { templateId: "tired-below",     name: "Keep tiredness below level",goalType: "target_value", period: "weekly",   direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 4 },
+  ],
+  headache: [
+    { templateId: "headache-below",  name: "Keep headaches below level",goalType: "target_value", period: "weekly",   direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 2 },
+  ],
+  back: [
+    { templateId: "back-below",      name: "Keep back pain below level",goalType: "target_value", period: "weekly",   direction: "lower_is_better",  aggregation: "avg",  suggestedTarget: 3 },
+  ],
+  tylenol: [
+    { templateId: "tylenol-weekly",  name: "Limit Tylenol doses per week", goalType: "cumulative", period: "weekly",  direction: "lower_is_better",  aggregation: "count", suggestedTarget: 3 },
+    { templateId: "tylenol-comply",  name: "Take Tylenol as prescribed", goalType: "cumulative",  period: "weekly",  direction: "higher_is_better", aggregation: "count", suggestedTarget: 7 },
+  ],
+  losartan: [
+    { templateId: "losartan-comply", name: "Take Losartan daily",        goalType: "streak",      period: "all_time", direction: "higher_is_better", aggregation: "count", suggestedStreak: 30 },
+    { templateId: "losartan-weekly", name: "Take Losartan 7 days/week",  goalType: "cumulative",  period: "weekly",   direction: "higher_is_better", aggregation: "count", suggestedTarget: 7 },
+  ],
+};
+
+// ─── Goal (a target attached to a metric) ────────────────────────────────────
+
+/**
+ * A user-defined target for a metric over an optional time window.
+ *
+ * goalType controls which fields are meaningful:
+ *
+ *   target_value  → single reading must reach targetValue
+ *                   (e.g. "weigh 160 lbs")
+ *   cumulative    → sum/count of entries in period must reach targetValue
+ *                   (e.g. "walk 50,000 steps this week",
+ *                    "cook at home 5 times this week" — boolean metric,
+ *                    aggregation:"count", targetValue:5)
+ *   range         → readings must stay inside [targetMin, targetMax]
+ *                   (e.g. "keep glucose 70–140 mg/dL")
+ *   streak        → consecutive days/weeks with ≥1 entry must reach streakTarget
+ *                   (e.g. "meditate 30 days in a row")
+ *   best_of       → beat personal best; direction determines better/worse
+ *                   (e.g. "run a mile under 8 min",
+ *                    "achieve resting HR ≤ 55 bpm")
+ *
+ * @typedef {'target_value'|'cumulative'|'range'|'streak'|'best_of'} GoalType
+ * @typedef {'daily'|'weekly'|'monthly'|'rolling'|'all_time'} GoalPeriod
+ * @typedef {'lower_is_better'|'higher_is_better'|'exact'} GoalDirection
+ *
+ * @typedef {Object} Goal
+ * @property {string}          goalId        - UUID, e.g. "g-4a7b2c1d"
+ * @property {string}          metricId      - FK → MetricDefinition
+ * @property {string}          userId        - FK → User
+ * @property {string}          name          - Friendly label shown in the UI
+ * @property {GoalType}        goalType
+ * @property {GoalPeriod}      period        - Evaluation window
+ * @property {number|null}     periodDays    - Only used when period = "rolling"
+ * @property {number|null}     targetValue   - Used by target_value / cumulative / best_of
+ * @property {number|null}     targetMin     - Used by range
+ * @property {number|null}     targetMax     - Used by range
+ * @property {GoalDirection}   direction     - Which way is progress?
+ * @property {AggregationKind} aggregation   - How entries are combined for evaluation
+ * @property {number|null}     streakTarget  - Used by streak (number of consecutive days)
+ * @property {boolean}         isActive
+ * @property {string}          startDate     - ISO date "YYYY-MM-DD"
+ * @property {string|null}     endDate       - ISO date, or null for ongoing
+ * @property {string}          createdAt     - ISO-8601
+ * @property {string}          updatedAt     - ISO-8601
+ */
+export const GOAL_DEFAULTS = {
+  goalId:        "",
+  metricId:      "",
+  userId:        "",
+  name:          "",
+  goalType:      "target_value",   // 'target_value'|'cumulative'|'range'|'streak'|'best_of'
+  period:        "weekly",         // 'daily'|'weekly'|'monthly'|'rolling'|'all_time'
+  periodDays:    null,
+  targetValue:   null,
+  targetMin:     null,
+  targetMax:     null,
+  direction:     "lower_is_better", // 'lower_is_better'|'higher_is_better'|'exact'
+  aggregation:   "sum",             // 'sum'|'count'|'avg'|'max'|'min'
+  streakTarget:  null,
+  isActive:      true,
+  startDate:     "",
+  endDate:       null,
+  createdAt:     "",
+  updatedAt:     "",
 };
 
 // ─── Metric subscription (user ↔ metric join record) ─────────────────────────
