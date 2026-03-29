@@ -83,6 +83,11 @@ Compress-Archive -Force -Path goal-save.mjs, node_modules, package.json -Destina
 Compress-Archive -Force -Path goals-get.mjs, node_modules, package.json -DestinationPath goals-get.zip
 Compress-Archive -Force -Path goal-delete.mjs, node_modules, package.json -DestinationPath goal-delete.zip
 Compress-Archive -Force -Path goal-progress-get.mjs, node_modules, package.json -DestinationPath goal-progress-get.zip
+Compress-Archive -Force -Path programs-catalog-get.mjs, node_modules, package.json -DestinationPath programs-catalog-get.zip
+Compress-Archive -Force -Path program-save.mjs, node_modules, package.json -DestinationPath program-save.zip
+Compress-Archive -Force -Path program-delete.mjs, node_modules, package.json -DestinationPath program-delete.zip
+Compress-Archive -Force -Path program-enroll.mjs, node_modules, package.json -DestinationPath program-enroll.zip
+Compress-Archive -Force -Path programs-enrolled-get.mjs, node_modules, package.json -DestinationPath programs-enrolled-get.zip
 ```
 
 ---
@@ -158,6 +163,12 @@ Each Lambda needs permission to read and write the DynamoDB table.
 | GET  | `/goals`            | `tobbihealth-goals-get` |
 | DELETE | `/goal`           | `tobbihealth-goal-delete` |
 | GET  | `/goal/progress`    | `tobbihealth-goal-progress-get` |
+| GET  | `/programs/catalog` | `tobbihealth-programs-catalog-get` |
+| PUT  | `/program`          | `tobbihealth-program-save` |
+| DELETE | `/program`        | `tobbihealth-program-delete` |
+| POST | `/program/enroll`   | `tobbihealth-program-enroll` |
+| DELETE | `/program/enroll` | `tobbihealth-program-enroll` |
+| GET  | `/programs/enrolled`| `tobbihealth-programs-enrolled-get` |
 
 4. Under **CORS**, set:
    - **Allow origin**: `http://localhost:5173`

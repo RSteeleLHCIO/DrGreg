@@ -65,6 +65,8 @@ export default function App() {
     fetchAndApplyEntries(token);
     // Load saved goals for this user.
     fetchAndApplyGoals(token);
+    // Load program enrolments.
+    fetchAndApplyEnrollments(token);
   }
 
   async function fetchAndApplyEntries(token) {
@@ -103,6 +105,18 @@ export default function App() {
         setGoals(goalList);
         const active = goalList.filter(g => g.isActive);
         if (active.length > 0) fetchGoalProgress(token, active);
+      }
+    } catch {}
+  }
+
+  async function fetchAndApplyEnrollments(token) {
+    try {
+      const res = await fetch(`${API}/programs/enrolled`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const { enrollments: list } = await res.json();
+        setEnrollments(list ?? []);
       }
     } catch {}
   }
@@ -438,6 +452,47 @@ export default function App() {
     }
   }
 
+  /**
+   * resolveMetricGoalDisplay — determine which goal (if any) to show for a metric.
+   *
+   * Returns one of:
+   *   { mode: 'none' }
+   *   { mode: 'standalone',     goal, prog }
+   *   { mode: 'single-program', goal, prog, programName }
+   *   { mode: 'multi-program',  programNames: string[] }
+   */
+  function resolveMetricGoalDisplay(metricId) {
+    const metricGoals = goals.filter(g => g.metricId === metricId && g.isActive);
+    if (!metricGoals.length) return { mode: 'none' };
+
+    // Build goalId → programName[] from active enrollments
+    const goalProgramNames = {};
+    for (const enr of enrollments) {
+      if (!enr.isActive) continue;
+      for (const gid of (enr.enrolledGoalIds ?? [])) {
+        if (!goalProgramNames[gid]) goalProgramNames[gid] = [];
+        goalProgramNames[gid].push(enr.programName);
+      }
+    }
+
+    const standaloneGoals = metricGoals.filter(g => !goalProgramNames[g.goalId]?.length);
+    if (standaloneGoals.length > 0) {
+      const goal = standaloneGoals[0];
+      return { mode: 'standalone', goal, prog: goalProgress[goal.goalId] ?? null };
+    }
+
+    const allProgramNames = [...new Set(
+      metricGoals.flatMap(g => goalProgramNames[g.goalId] ?? [])
+    )];
+
+    if (allProgramNames.length === 1) {
+      const goal = metricGoals[0];
+      return { mode: 'single-program', goal, prog: goalProgress[goal.goalId] ?? null, programName: allProgramNames[0] };
+    }
+
+    return { mode: 'multi-program', programNames: allProgramNames };
+  }
+
   function openGoalWizard(metricId, specificGoalId) {
     const metricTitle = metricConfig[metricId]?.title || toSentenceCase(metricId);
     const templates = METRIC_GOAL_TEMPLATES[metricId] ?? [];
@@ -537,6 +592,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState('day');
   const [goals, setGoals] = useState([]);
   const [goalProgress, setGoalProgress] = useState({});
+  const [enrollments, setEnrollments] = useState([]);
   const defaultHistoryMetric = 'weight';
   const [historyMetric, setHistoryMetric] = useState(defaultHistoryMetric);
   const [prevViewMode, setPrevViewMode] = useState('day');
@@ -1325,13 +1381,19 @@ export default function App() {
                               );
                             })()}
                             {(() => {
-                              const metricGoals = goals.filter(g => g.metricId === meta.cardName && g.isActive);
-                              if (!metricGoals.length) return null;
-                              const firstGoal = metricGoals[0];
-                              const prog = goalProgress[firstGoal.goalId];
+                              const display = resolveMetricGoalDisplay(meta.cardName);
+                              if (display.mode === 'none') return null;
+                              if (display.mode === 'multi-program') {
+                                return (
+                                  <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
+                                    Multiple goals ({display.programNames.join(', ')})
+                                  </div>
+                                );
+                              }
+                              const { goal, prog } = display;
                               if (!prog) return null;
                               const pct = (prog.pct ?? 0) * 100;
-                              const isLBC = firstGoal.goalType === 'cumulative' && firstGoal.direction === 'lower_is_better';
+                              const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
                               const barColor = isLBC
                                 ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
                                 : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
@@ -1340,7 +1402,12 @@ export default function App() {
                                   <div style={{ width: '100%', height: 3, background: '#e5e7eb', borderRadius: 2, overflow: 'hidden' }}>
                                     <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
                                   </div>
-                                  <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>{Math.round(pct)}% {isLBC ? 'of limit' : 'of goal'}</div>
+                                  <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>
+                                    {Math.round(pct)}% {isLBC ? 'of limit' : 'of goal'}
+                                    {display.mode === 'single-program' && (
+                                      <span style={{ fontWeight: 400, color: '#9ca3af' }}> · {display.programName}</span>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -1434,51 +1501,61 @@ export default function App() {
 
           {/* ── Goal summary card(s) ── */}
           {(() => {
-            const metricGoals = goals.filter(g => g.metricId === historyMetric && g.isActive);
-            if (!metricGoals.length) return null;
-            return metricGoals.map(goal => {
-              const prog = goalProgress[goal.goalId];
-              if (!prog) return null;
-              const pctDisplay = prog.pct != null ? Math.round(prog.pct * 100) : null;
-              const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
-              const trackColor = prog.isOnTrack == null ? '#9ca3af' : prog.isOnTrack ? '#10b981' : '#f59e0b';
-              const barColor = isLBC && pctDisplay != null
-                ? (pctDisplay <= 60 ? '#10b981' : pctDisplay <= 85 ? '#f59e0b' : '#ef4444')
-                : trackColor;
-              const trackLabel = prog.isOnTrack == null ? 'No data' : prog.isOnTrack ? 'On Track' : 'Off Track';
-              let currentDisplay = null;
-              if (prog.current != null) {
-                const cfg = metricConfig[historyMetric] ?? {};
-                const uom = cfg.uom ?? '';
-                if (goal.goalType === 'range') {
-                  currentDisplay = `Avg ${prog.current}${uom ? ` ${uom}` : ''} · ${prog.inRangeCount ?? 0} of ${prog.entryCount ?? 0} in range`;
-                } else if (goal.goalType === 'streak') {
-                  currentDisplay = `${prog.current} day${prog.current !== 1 ? 's' : ''} / ${prog.target} day target`;
-                } else {
-                  const targetStr = prog.target != null ? ` / ${prog.target}${uom ? ` ${uom}` : ''}` : '';
-                  currentDisplay = `${prog.current}${uom ? ` ${uom}` : ''}${targetStr}`;
-                }
-              }
+            const display = resolveMetricGoalDisplay(historyMetric);
+            if (display.mode === 'none') return null;
+
+            if (display.mode === 'multi-program') {
               return (
-                <div key={goal.goalId} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{goal.name}</div>
-                      {prog.periodLabel && <div style={{ fontSize: 12, color: '#9ca3af' }}>{prog.periodLabel}</div>}
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: trackColor, whiteSpace: 'nowrap', marginLeft: 8 }}>{trackLabel}</span>
-                  </div>
-                  {pctDisplay != null && (
-                    <div style={{ marginBottom: 4 }}>
-                      <div style={{ height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${Math.min(pctDisplay, 100)}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
-                      </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{pctDisplay}% {isLBC ? 'of limit used' : 'complete'}{currentDisplay ? ` · ${currentDisplay}` : ''}</div>
-                    </div>
-                  )}
+                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#6b7280' }}>
+                  <span style={{ fontWeight: 600, color: '#374151' }}>Multiple goals</span>
+                  {' '}({display.programNames.join(', ')}) — open My Programs for details
                 </div>
               );
-            });
+            }
+
+            // Both 'standalone' and 'single-program' render the same detail card
+            const { goal, prog, programName } = display;
+            if (!prog) return null;
+            const pctDisplay = prog.pct != null ? Math.round(prog.pct * 100) : null;
+            const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
+            const trackColor = prog.isOnTrack == null ? '#9ca3af' : prog.isOnTrack ? '#10b981' : '#f59e0b';
+            const barColor = isLBC && pctDisplay != null
+              ? (pctDisplay <= 60 ? '#10b981' : pctDisplay <= 85 ? '#f59e0b' : '#ef4444')
+              : trackColor;
+            const trackLabel = prog.isOnTrack == null ? 'No data' : prog.isOnTrack ? 'On Track' : 'Off Track';
+            let currentDisplay = null;
+            if (prog.current != null) {
+              const cfg = metricConfig[historyMetric] ?? {};
+              const uom = cfg.uom ?? '';
+              if (goal.goalType === 'range') {
+                currentDisplay = `Avg ${prog.current}${uom ? ` ${uom}` : ''} \u00b7 ${prog.inRangeCount ?? 0} of ${prog.entryCount ?? 0} in range`;
+              } else if (goal.goalType === 'streak') {
+                currentDisplay = `${prog.current} day${prog.current !== 1 ? 's' : ''} / ${prog.target} day target`;
+              } else {
+                const targetStr = prog.target != null ? ` / ${prog.target}${uom ? ` ${uom}` : ''}` : '';
+                currentDisplay = `${prog.current}${uom ? ` ${uom}` : ''}${targetStr}`;
+              }
+            }
+            return (
+              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{goal.name}</div>
+                    {prog.periodLabel && <div style={{ fontSize: 12, color: '#9ca3af' }}>{prog.periodLabel}</div>}
+                    {programName && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>{programName}</div>}
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: trackColor, whiteSpace: 'nowrap', marginLeft: 8 }}>{trackLabel}</span>
+                </div>
+                {pctDisplay != null && (
+                  <div style={{ marginBottom: 4 }}>
+                    <div style={{ height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.min(pctDisplay, 100)}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{pctDisplay}% {isLBC ? 'of limit used' : 'complete'}{currentDisplay ? ` \u00b7 ${currentDisplay}` : ''}</div>
+                  </div>
+                )}
+              </div>
+            );
           })()}
 
           {/* ── Entry list ── */}

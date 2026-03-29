@@ -404,6 +404,166 @@ export const METRIC_SUBSCRIPTION_DEFAULTS = {
   lastEntryWeek:           null,  // 'YYYY-Www' (ISO week) of last saved entry
 };
 
+// ─── Demographic group ────────────────────────────────────────────────────────
+
+/**
+ * A descriptor for which user population a Program (or set of goals) applies to.
+ *
+ * The `criteria` array is intentionally open-ended so future fields (age, sex,
+ * height, weight, diagnosis, etc.) can be added without schema changes.
+ * Actual matching against user profile data is deferred; capturing the shape
+ * here allows Programs and sponsored-goal enforcement to reference groups now.
+ *
+ * The special groupId `"any"` means "no restriction — applies to everyone."
+ *
+ * @typedef {Object} DemographicCriterion
+ * @property {string}           field  - Profile field slug, e.g. "age", "sex", "height_in"
+ * @property {'='|'>='|'<='|'>'|'<'|'in'} op
+ * @property {*}                value  - Scalar or array (for "in")
+ *
+ * @typedef {Object} DemographicGroup
+ * @property {string}                  groupId   - Slug, e.g. "men-60plus", "any"
+ * @property {string}                  label     - UI display name
+ * @property {DemographicCriterion[]}  criteria  - All criteria must match (AND logic)
+ */
+export const DEMOGRAPHIC_GROUP_DEFAULTS = {
+  groupId:  "any",
+  label:    "Everyone",
+  criteria: [],
+};
+
+/**
+ * Built-in demographic groups referenced by system Programs.
+ * User-defined groups are not yet supported.
+ *
+ * @type {DemographicGroup[]}
+ */
+export const DEMOGRAPHIC_GROUPS = [
+  { groupId: "any",           label: "Everyone",                    criteria: [] },
+  { groupId: "adults",        label: "Adults (18+)",                criteria: [{ field: "age", op: ">=", value: 18 }] },
+  { groupId: "seniors",       label: "Seniors (65+)",               criteria: [{ field: "age", op: ">=", value: 65 }] },
+  { groupId: "men",           label: "Men",                         criteria: [{ field: "sex", op: "=",  value: "male" }] },
+  { groupId: "women",         label: "Women",                       criteria: [{ field: "sex", op: "=",  value: "female" }] },
+  { groupId: "men-60plus",    label: "Men age 60+",                 criteria: [{ field: "sex", op: "=",  value: "male" }, { field: "age", op: ">=", value: 60 }] },
+  { groupId: "women-short",   label: "Women under 63\u2033",        criteria: [{ field: "sex", op: "=",  value: "female" }, { field: "height_in", op: "<", value: 63 }] },
+];
+
+// ─── Program ─────────────────────────────────────────────────────────────────
+
+/**
+ * A Program bundles one or more metrics + suggested goal templates into a
+ * named, shareable plan.
+ *
+ * programType controls visibility and goal-locking:
+ *   personal   → created by a user for themselves; not visible to others
+ *   public     → created by a user or SYSTEM; visible in the catalog; goals
+ *                are suggestions the user may customise on enrolment
+ *   sponsored  → created by a third-party organisation; visible in the catalog;
+ *                goals are LOCKED to the template (not modifiable on enrolment)
+ *
+ * DynamoDB key patterns:
+ *   personal  → PK = "USER#<userId>",   SK = "PROGRAM#<programId>"
+ *   public / sponsored → PK = "PROGRAMS",  SK = "PROG#<programId>"
+ *
+ * Constraint: public / sponsored programs may only reference metrics where
+ *   isPublic = true; enforced by the frontend (program-save validates format only).
+ *
+ * @typedef {'public'|'personal'|'sponsored'} ProgramType
+ *
+ * @typedef {Object} ProgramItem
+ * @property {string}      itemId          - Stable slug within this program, e.g. "item-1"
+ * @property {string}      metricId        - FK → MetricDefinition
+ * @property {string|null} goalTemplateId  - Refs METRIC_GOAL_TEMPLATES[metricId][n].templateId;
+ *                                          null means "track this metric, no specific goal"
+ * @property {string}      notes           - One-sentence explanation shown in the enrolment wizard
+ *
+ * @typedef {Object} Program
+ * @property {string}       programId          - Slug, e.g. "prog-weight-loss-basic"
+ * @property {ProgramType}  programType
+ * @property {string}       name               - Display label
+ * @property {string}       description        - Longer explanation
+ * @property {string}       infoUrl            - Optional reference URL
+ * @property {string|null}  sponsorName        - Organisation name (sponsored only)
+ * @property {string}       createdBy          - userId or "SYSTEM"
+ * @property {boolean}      isPublic           - true for public + sponsored (derived on write)
+ * @property {number}       version            - Incremented on update to track enrolment drift
+ * @property {string}       category           - e.g. "Weight Management", "Cardiovascular"
+ * @property {string[]}     tags               - Free-form discovery tags
+ * @property {number|null}  durationDays       - null = indefinite / ongoing
+ * @property {string}       demographicGroupId - FK → DemographicGroup; "any" = no restriction
+ * @property {ProgramItem[]} items             - Ordered metric+goal components
+ * @property {string}       createdAt
+ * @property {string}       updatedAt
+ */
+export const PROGRAM_ITEM_DEFAULTS = {
+  itemId:         "",
+  metricId:       "",
+  goalTemplateId: null,
+  notes:          "",
+};
+
+export const PROGRAM_DEFAULTS = {
+  programId:          "",
+  programType:        "personal",     // 'public' | 'personal' | 'sponsored'
+  name:               "",
+  description:        "",
+  infoUrl:            "",
+  sponsorName:        null,
+  createdBy:          "",
+  isPublic:           false,          // computed on write: programType !== 'personal'
+  version:            1,
+  category:           "",
+  tags:               [],
+  durationDays:       null,
+  demographicGroupId: "any",
+  items:              [],             // ProgramItem[]
+  createdAt:          "",
+  updatedAt:          "",
+};
+
+// ─── Enrollment ───────────────────────────────────────────────────────────────
+
+/**
+ * Records a user's participation in a Program.
+ *
+ * DynamoDB key:
+ *   PK = "USER#<userId>",  SK = "ENROLLMENT#<programId>"
+ *
+ * `programType` and `programVersion` are snapshotted at enrolment time so the
+ * frontend can enforce goal-locking without re-fetching the program definition.
+ *
+ * `isCustomized` is set to true if the user changed any goal away from its
+ * template default at enrolment time. Always false for sponsored programs
+ * (the enrolment wizard does not allow modifications).
+ *
+ * `enrolledGoalIds` links back to the goals created from this enrolment so
+ * progress can be aggregated at the program level.
+ *
+ * @typedef {Object} Enrollment
+ * @property {string}    enrollmentId    - "enr-<uuid-fragment>"
+ * @property {string}    programId
+ * @property {string}    programName     - Snapshot of program name at enrolment
+ * @property {ProgramType} programType   - Snapshot; drives locked-goals enforcement
+ * @property {number}    programVersion  - Snapshot
+ * @property {string}    enrolledAt      - ISO-8601
+ * @property {string}    startDate       - ISO date, YYYY-MM-DD
+ * @property {string[]}  enrolledGoalIds - Goals created from this enrolment
+ * @property {boolean}   isCustomized    - Whether any goal was modified from template
+ * @property {boolean}   isActive
+ */
+export const ENROLLMENT_DEFAULTS = {
+  enrollmentId:    "",
+  programId:       "",
+  programName:     "",
+  programType:     "public",
+  programVersion:  1,
+  enrolledAt:      "",
+  startDate:       "",
+  enrolledGoalIds: [],
+  isCustomized:    false,
+  isActive:        true,
+};
+
 // ─── localStorage key registry ────────────────────────────────────────────────
 
 /**
