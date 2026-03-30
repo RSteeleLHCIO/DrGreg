@@ -306,11 +306,14 @@ function evalTargetValue(entries, targetValue, direction,
   const current = latest ? toNum(latest.value) : null;
   const pct     = scalarPct(current, targetValue, direction);
 
+  // For target_value there's no pace/schedule, so isOnTrack is only true when
+  // the goal is actually met; otherwise null ("in progress", not "off track").
   let isOnTrack = null;
   if (current !== null) {
-    isOnTrack = direction === "higher_is_better" ? current >= targetValue
+    const met = direction === "higher_is_better" ? current >= targetValue
               : direction === "lower_is_better"  ? current <= targetValue
               : current === targetValue;
+    isOnTrack = met ? true : null;
   }
 
   return {

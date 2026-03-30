@@ -15,7 +15,7 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
 import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
-import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS } from './db/schema';
+import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS, PROGRAM_ITEM_DEFAULTS } from './db/schema';
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
 
@@ -24,6 +24,85 @@ const METRIC_ICONS = { Activity, Heart, Droplet, Gauge, Moon, Brain, Bone, Therm
 
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '';
+}
+
+// Returns a human-friendly progress label for any goal type.
+// fmtV(v) should return "v uom" (already formatted).
+function goalProgressLabel(goalType, direction, prog, fmtV) {
+  if (!prog) return null;
+  const { current, target, targetMin, targetMax, pct, isOnTrack, entryCount, inRangeCount } = prog;
+
+  if (goalType === 'target_value') {
+    if (current == null) return null;
+    const diff = Math.abs(+current - +target);
+    return diff === 0 ? 'Goal reached!' : `${fmtV(diff)} to go`;
+  }
+
+  if (goalType === 'cumulative') {
+    if (current == null || target == null) return null;
+    if (direction === 'lower_is_better') {
+      const over = +(current - target).toFixed(4);
+      return over <= 0 ? 'Within limit!' : `${fmtV(Math.abs(over))} over limit`;
+    }
+    const rem = +(target - current).toFixed(4);
+    return rem <= 0 ? 'Goal met!' : `${fmtV(rem)} to go`;
+  }
+
+  if (goalType === 'streak') {
+    if (current == null || target == null) return null;
+    const rem = target - current;
+    return rem <= 0 ? 'Streak goal reached!' : `${rem} more day${rem !== 1 ? 's' : ''}`;
+  }
+
+  if (goalType === 'range') {
+    if (current == null || targetMin == null || targetMax == null) return null;
+    if (current >= targetMin && current <= targetMax) return 'In range — keep it up!';
+    const rangeWidth = targetMax - targetMin;
+    const soCloseThreshold = rangeWidth * 0.15;
+    if (current > targetMax) {
+      const over = current - targetMax;
+      return over <= soCloseThreshold ? `Just ${fmtV(over)} above — so close!` : `${fmtV(over)} above range`;
+    }
+    const under = targetMin - current;
+    return under <= soCloseThreshold ? `Just ${fmtV(under)} below — so close!` : `${fmtV(under)} below range`;
+  }
+
+  if (goalType === 'best_of') {
+    if (current == null || target == null) return null;
+    const diff = direction === 'lower_is_better' ? current - target : target - current;
+    return diff <= 0 ? 'Personal best!' : `${fmtV(diff)} to beat your best`;
+  }
+
+  return null;
+}
+
+function NestedRingsLogo({ size = 40, highlight = 'none', strokeColor = 'white', fillColor, strokeOpacity = 0.75, className, style }) {
+  const fc = fillColor ?? strokeColor;
+  const maskId = `nrl-${highlight}-${size}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className} style={style}>
+      <defs>
+        {highlight === 'programs' && (
+          <mask id={maskId}>
+            <circle cx="50" cy="58" r="36" fill="white" />
+            <circle cx="50" cy="66" r="28" fill="black" />
+          </mask>
+        )}
+        {highlight === 'circles' && (
+          <mask id={maskId}>
+            <circle cx="50" cy="50" r="44" fill="white" />
+            <circle cx="50" cy="58" r="36" fill="black" />
+          </mask>
+        )}
+      </defs>
+      {highlight === 'data' && <circle cx="50" cy="66" r="28" fill={fc} />}
+      {highlight === 'programs' && <rect width="100" height="100" fill={fc} mask={`url(#${maskId})`} />}
+      {highlight === 'circles' && <rect width="100" height="100" fill={fc} mask={`url(#${maskId})`} />}
+      <circle cx="50" cy="50" r="44" stroke={strokeColor} strokeWidth="2.5" strokeOpacity={strokeOpacity} />
+      <circle cx="50" cy="58" r="36" stroke={strokeColor} strokeWidth="2" strokeOpacity={strokeOpacity} />
+      <circle cx="50" cy="66" r="28" stroke={strokeColor} strokeWidth="2.5" strokeOpacity={strokeOpacity} />
+    </svg>
+  );
 }
 
 export default function App() {
@@ -67,6 +146,8 @@ export default function App() {
     fetchAndApplyGoals(token);
     // Load program enrolments.
     fetchAndApplyEnrollments(token);
+    // Load user's programs.
+    fetchAndApplyPrograms(token);
   }
 
   async function fetchAndApplyEntries(token) {
@@ -117,6 +198,20 @@ export default function App() {
       if (res.ok) {
         const { enrollments: list } = await res.json();
         setEnrollments(list ?? []);
+      }
+    } catch {}
+  }
+
+  async function fetchAndApplyPrograms(token) {
+    try {
+      const res = await fetch(`${API}/programs/catalog`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const { programs: list } = await res.json();
+        // Keep only programs owned by this user (personal type)
+        const userId = user?.userId ?? user?.sub;
+        setPrograms((list ?? []).filter(p => p.programType === 'personal' && p.createdBy === userId));
       }
     } catch {}
   }
@@ -584,6 +679,112 @@ export default function App() {
     } catch {}
   }
 
+  // ── Program wizard ─────────────────────────────────────────────────────────
+
+  function openProgramWizard(existingProgram) {
+    if (existingProgram) {
+      setOpen({ type: 'program-wizard', screen: 'name', programId: existingProgram.programId, draft: { ...existingProgram } });
+    } else {
+      setOpen({ type: 'program-wizard', screen: 'name', programId: null, draft: { name: '', description: '', items: [] } });
+    }
+  }
+
+  async function handleSaveProgram() {
+    const draft = open?.draft;
+    if (!draft?.name?.trim()) {
+      setOpen({ ...open, saveError: 'Please enter a program name.' });
+      return;
+    }
+    if (!draft.items?.length) {
+      setOpen({ ...open, saveError: 'Add at least one metric goal before saving.' });
+      return;
+    }
+    setOpen({ ...open, isSaving: true, saveError: undefined });
+    try {
+      const userId = user?.userId ?? user?.sub ?? '';
+      const progId = open.programId || `prog-${Date.now().toString(36)}`;
+      const programPayload = {
+        ...draft,
+        programId:   progId,
+        programType: 'personal',
+        createdBy:   userId,
+      };
+
+      // 1 — Save the program definition
+      const progRes = await fetch(`${API}/program`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(programPayload),
+      });
+      if (!progRes.ok) {
+        const err = await progRes.json().catch(() => ({}));
+        setOpen({ ...open, isSaving: false, saveError: err.error || 'Failed to save program.' });
+        return;
+      }
+      const { program: savedProgram } = await progRes.json();
+
+      // 2 — Create a live goal for each item and collect goalIds
+      const todayIso = new Date().toISOString().split('T')[0];
+      const enrolledGoalIds = [];
+      for (const item of draft.items) {
+        const goalBody = {
+          metricId:     item.metricId,
+          name:         item.goalName || item.metricId,
+          goalType:     item.goalType,
+          period:       item.period,
+          direction:    item.direction,
+          aggregation:  item.aggregation ?? 'avg',
+          targetValue:  item.targetValue ?? null,
+          startingValue: item.startingValue ?? null,
+          targetMin:    item.targetMin ?? null,
+          targetMax:    item.targetMax ?? null,
+          streakTarget: item.streakTarget ?? null,
+          periodDays:   item.periodDays ?? null,
+          startDate:    todayIso,
+          isActive:     true,
+        };
+        const gRes = await fetch(`${API}/goal`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify(goalBody),
+        });
+        if (gRes.ok) {
+          const { goal } = await gRes.json();
+          setGoals(prev => [...prev.filter(g => g.goalId !== goal.goalId), goal]);
+          fetchGoalProgress(authToken, [goal]);
+          enrolledGoalIds.push(goal.goalId);
+        }
+      }
+
+      // 3 — Auto-enroll (personal program; creator is always enrolled)
+      await fetch(`${API}/program/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ programId: progId, enrolledGoalIds, isCustomized: false }),
+      });
+
+      setPrograms(prev => [...prev.filter(p => p.programId !== progId), savedProgram ?? programPayload]);
+      fetchAndApplyEnrollments(authToken);
+      setOpen(null);
+    } catch {
+      setOpen({ ...open, isSaving: false, saveError: 'Network error. Please try again.' });
+    }
+  }
+
+  async function handleDeleteProgram(programId) {
+    if (!window.confirm('Delete this program? Associated goals will remain but will no longer be linked to the program.')) return;
+    try {
+      const res = await fetch(`${API}/program`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ programId }),
+      });
+      if (res.ok) {
+        setPrograms(prev => prev.filter(p => p.programId !== programId));
+      }
+    } catch {}
+  }
+
   // --- Feature flags (persisted) --------------------------------------------
   // --- View mode ------------------------------------------------------------
   // 'day' = show all cards for selected date
@@ -593,6 +794,7 @@ export default function App() {
   const [goals, setGoals] = useState([]);
   const [goalProgress, setGoalProgress] = useState({});
   const [enrollments, setEnrollments] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const defaultHistoryMetric = 'weight';
   const [historyMetric, setHistoryMetric] = useState(defaultHistoryMetric);
   const [prevViewMode, setPrevViewMode] = useState('day');
@@ -720,7 +922,13 @@ export default function App() {
       )
       .catch(() => {});
     }
-    setOpen(null);
+    // If launched from the program wizard, return to it (metric is now available to pick)
+    const returnTo = open?._returnTo;
+    if (returnTo) {
+      setOpen({ ...returnTo, screen: 'pick-metric', saveError: undefined });
+    } else {
+      setOpen(null);
+    }
   }
 
   if (!authToken) {
@@ -858,7 +1066,7 @@ export default function App() {
           <div className="home-grid">
             <div className="home-panel home-panel--data" onClick={() => setActiveSection('my-data')}>
               <div>
-                <div className="home-panel-icon-wrap"><Activity size={52} strokeWidth={1.5} /></div>
+                <div className="home-panel-icon-wrap"><NestedRingsLogo size={52} highlight="data" strokeColor="white" fillColor="white" strokeOpacity={0.8} /></div>
                 <div className="home-panel-title">My Data</div>
                 <div className="home-panel-desc">Track your vitals, medications, and daily health metrics. Log readings and view trends over time.</div>
               </div>
@@ -866,15 +1074,15 @@ export default function App() {
             </div>
             <div className="home-panel home-panel--programs" onClick={() => setActiveSection('my-programs')}>
               <div>
-                <div className="home-panel-icon-wrap"><Target size={44} strokeWidth={1.5} /></div>
+                <div className="home-panel-icon-wrap"><NestedRingsLogo size={48} highlight="programs" strokeColor="rgba(26,46,5,0.55)" fillColor="#4d7c0f" strokeOpacity={0.7} /></div>
                 <div className="home-panel-title">My Programs</div>
                 <div className="home-panel-desc">Follow personalized health plans and structured wellness routines.</div>
               </div>
-              <div className="home-panel-badge">Coming Soon</div>
+              <div className="home-panel-cta">Open →</div>
             </div>
             <div className="home-panel home-panel--circles" onClick={() => setActiveSection('my-circles')}>
               <div>
-                <div className="home-panel-icon-wrap"><Users size={44} strokeWidth={1.5} /></div>
+                <div className="home-panel-icon-wrap"><NestedRingsLogo size={48} highlight="circles" strokeColor="rgba(5,25,50,0.45)" fillColor="#1d4ed8" strokeOpacity={0.7} /></div>
                 <div className="home-panel-title">My Circles</div>
                 <div className="home-panel-desc">Connect with your care team, family, and support network.</div>
               </div>
@@ -884,19 +1092,152 @@ export default function App() {
         </div>
       )}
 
-      {/* ===== MY PROGRAMS placeholder ===== */}
+      {/* ===== MY PROGRAMS ===== */}
       {activeSection === 'my-programs' && (
-        <div className="section-placeholder-wrapper">
-          <button className="home-back-btn" onClick={() => setActiveSection(null)}>
-            <Home size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
-          </button>
-          <div className="section-placeholder">
-            <div className="section-placeholder-icon" style={{ background: 'linear-gradient(145deg, #7c3aed, #4f46e5)' }}>
-              <Target size={40} strokeWidth={1.5} color="white" />
+        <div className="mydata-wrapper">
+          {/* Hero banner */}
+          <div className="myprogs-hero">
+            <NestedRingsLogo size={180} highlight="programs" strokeColor="white" fillColor="white" strokeOpacity={0.65} style={{ position: 'absolute', top: -10, right: -15, pointerEvents: 'none', opacity: 0.2 }} />
+            <div className="mydata-hero-left">
+              <button className="home-back-btn home-back-btn--light" onClick={() => setActiveSection(null)}>
+                <Home size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
+              </button>
+              <div className="mydata-hero-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <NestedRingsLogo size={28} highlight="programs" strokeColor="white" fillColor="white" strokeOpacity={0.8} />
+                My Programs
+              </div>
+              <div className="mydata-hero-sub">{getGreeting()}, {user.firstName} &middot; {nowText}</div>
             </div>
-            <h2 className="section-placeholder-title">My Programs</h2>
-            <p className="section-placeholder-desc">Personalized health plans and structured wellness routines are on their way.</p>
-            <span className="section-placeholder-badge">Coming Soon</span>
+            <div className="myprogs-hero-actions">
+              <Button variant="outline" className="btn-icon" aria-label="New Program" title="New Program" onClick={() => openProgramWizard(null)}>
+                <Plus />
+              </Button>
+              <Button variant="outline" className="btn-icon" aria-label="My Data" title="My Data" onClick={() => setActiveSection('my-data')}>
+                <NestedRingsLogo size={18} highlight="data" strokeColor="currentColor" fillColor="currentColor" strokeOpacity={0.85} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 0 80px' }}>
+            {programs.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 24px', background: '#f9fafb', borderRadius: 12, border: '1px dashed #d1d5db', marginTop: 8 }}>
+                <NestedRingsLogo size={80} highlight="programs" strokeColor="#9ca3af" fillColor="#d9f99d" strokeOpacity={0.6} className="logo-pulse" style={{ marginBottom: 10 }} />
+                <div style={{ fontWeight: 600, fontSize: 15, color: '#374151', marginBottom: 6 }}>No programs yet</div>
+                <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>Create a personal program to bundle metrics and goals into a structured plan.</div>
+                <Button onClick={() => openProgramWizard(null)}>
+                  <Plus size={14} style={{ marginRight: 6 }} />Create Your First Program
+                </Button>
+              </div>
+            ) : (
+              <div className="myprogs-cards-grid">
+                {programs.map((prog, progIdx) => {
+                  const enrollment = enrollments.find(e => e.programId === prog.programId && e.isActive);
+                  const itemCount = prog.items?.length ?? 0;
+                  return (
+                    <div key={prog.programId} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', animation: 'card-pop-in 0.38s cubic-bezier(0.22,1,0.36,1) both', animationDelay: `${progIdx * 0.07}s` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, fontSize: 15 }}>{prog.name}</span>
+                            {enrollment && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, background: '#dcfce7', padding: '1px 8px', borderRadius: 10 }}>Active</span>}
+                          </div>
+                          {prog.description && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{prog.description}</div>}
+                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{itemCount} metric goal{itemCount !== 1 ? 's' : ''}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, marginLeft: 10, flexShrink: 0 }}>
+                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12 }} onClick={() => openProgramWizard(prog)}>Edit</Button>
+                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12, color: '#ef4444' }} onClick={() => handleDeleteProgram(prog.programId)}>Delete</Button>
+                        </div>
+                      </div>
+                      {prog.items?.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
+                          {prog.items.map(item => {
+                            const cfg = metricConfig[item.metricId] ?? {};
+                            const title = cfg.title || toSentenceCase(item.metricId);
+                            const Icon = METRIC_ICONS[cfg._icon] ?? Activity;
+                            const prog2 = enrollment
+                              ? Object.values(goalProgress).find(gp =>
+                                  enrollment.enrolledGoalIds?.includes(gp.goalId) &&
+                                  goals.find(g => g.goalId === gp.goalId && g.metricId === item.metricId)
+                                )
+                              : null;
+                            const enrolledGoal = enrollment
+                              ? goals.find(g =>
+                                  enrollment.enrolledGoalIds?.includes(g.goalId) &&
+                                  g.metricId === item.metricId
+                                )
+                              : null;
+                            const pctRaw = prog2?.pct ?? null;
+                            const itemUom = cfg.uom ?? '';
+                            const fmtVi = v => v != null ? `${v}${itemUom ? '\u2009' + itemUom : ''}` : '—';
+                            const isLIBi = (enrolledGoal?.direction ?? item.direction) === 'lower_is_better';
+                            const hasEndpoints = item.goalType === 'target_value' && enrolledGoal?.startingValue != null && enrolledGoal?.targetValue != null;
+
+                            // Recompute bar pct from start→target range when applicable
+                            let barPctI = pctRaw != null ? pctRaw * 100 : null;
+                            if (hasEndpoints && prog2?.current != null) {
+                              const range = isLIBi ? (enrolledGoal.startingValue - enrolledGoal.targetValue) : (enrolledGoal.targetValue - enrolledGoal.startingValue);
+                              if (range !== 0) {
+                                const moved = isLIBi ? (enrolledGoal.startingValue - prog2.current) : (prog2.current - enrolledGoal.startingValue);
+                                barPctI = Math.min(100, Math.max(0, (moved / range) * 100));
+                              }
+                            }
+
+                            const isLBC = item.goalType === 'cumulative' && item.direction === 'lower_is_better';
+                            const barColor = prog2
+                              ? (item.goalType === 'range'
+                                  ? (prog2.isOnTrack ? '#10b981' : '#f59e0b')
+                                  : isLBC
+                                    ? (barPctI <= 60 ? '#10b981' : barPctI <= 85 ? '#f59e0b' : '#ef4444')
+                                    : hasEndpoints
+                                      ? (barPctI >= 100 ? '#10b981' : '#f59e0b')
+                                      : (prog2.isOnTrack ? '#10b981' : '#f59e0b'))
+                              : '#d1d5db';
+
+                            const progressLabel = prog2
+                              ? goalProgressLabel(enrolledGoal?.goalType ?? item.goalType, enrolledGoal?.direction ?? item.direction, prog2, fmtVi)
+                              : null;
+                            return (
+                              <div key={item.itemId}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1 }}>
+                                    <Icon size={12} style={{ color: '#6b7280', flexShrink: 0 }} />
+                                    <span style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.goalName || title}</span>
+                                  </div>
+                                </div>
+                                {hasEndpoints && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9ca3af', marginBottom: 2 }}>
+                                    <span>{fmtVi(enrolledGoal.startingValue)}</span>
+                                    {prog2?.current != null && <span style={{ color: '#374151', fontWeight: 600 }}>{fmtVi(prog2.current)}</span>}
+                                    <span>{fmtVi(enrolledGoal.targetValue)}</span>
+                                  </div>
+                                )}
+                                {item.goalType === 'range' && enrolledGoal?.targetMin != null && (
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9ca3af', marginBottom: 2 }}>
+                                    <span>Range: {fmtVi(enrolledGoal.targetMin)}–{fmtVi(enrolledGoal.targetMax)}</span>
+                                    {prog2?.current != null && <span style={{ color: '#374151', fontWeight: 600 }}>{fmtVi(prog2.current)}</span>}
+                                  </div>
+                                )}
+                                <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
+                                  <div style={{ width: `${Math.min(100, Math.max(0, barPctI ?? 0))}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
+                                </div>
+                                {progressLabel && (
+                                  <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>{progressLabel}</div>
+                                )}
+                                {!prog2 && (
+                                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{(item.period ?? '').replace(/_/g, ' ')}</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -923,11 +1264,15 @@ export default function App() {
         <div className="mydata-wrapper">
           {/* Hero banner */}
           <div className="mydata-hero">
+            <NestedRingsLogo size={180} highlight="data" strokeColor="white" fillColor="white" strokeOpacity={0.65} style={{ position: 'absolute', top: -10, right: -15, pointerEvents: 'none', opacity: 0.2 }} />
             <div className="mydata-hero-left">
               <button className="home-back-btn home-back-btn--light" onClick={() => setActiveSection(null)}>
                 <Home size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />Home
               </button>
-              <div className="mydata-hero-title">My Data</div>
+              <div className="mydata-hero-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <NestedRingsLogo size={28} highlight="data" strokeColor="white" fillColor="white" strokeOpacity={0.8} />
+                My Data
+              </div>
               <div className="mydata-hero-sub">{getGreeting()}, {user.firstName} &middot; {nowText}</div>
             </div>
             {/* Action toolbar */}
@@ -997,6 +1342,17 @@ export default function App() {
           >
             <Plus />
           </Button>
+          {/* Jump to My Programs */}
+          <Button
+            variant="outline"
+            className="btn-icon"
+            aria-label="My Programs"
+            title="My Programs"
+            style={{ marginLeft: 4 }}
+            onClick={() => setActiveSection('my-programs')}
+          >
+            <NestedRingsLogo size={18} highlight="programs" strokeColor="currentColor" fillColor="currentColor" strokeOpacity={0.85} />
+          </Button>
               {/* swipe left/right on the screen to change dates */}
             </div>
           </div>
@@ -1050,6 +1406,8 @@ export default function App() {
                 const metricTitle = metricConfig[goal.metricId]?.title || toSentenceCase(goal.metricId);
                 const pct = prog?.pct ?? null;
                 const isOnTrack = prog?.isOnTrack ?? null;
+                const uom = metricConfig[goal.metricId]?.uom ?? '';
+                const fmtV = v => v != null ? `${v}${uom ? '\u2009' + uom : ''}` : '—';
                 const barColor = isOnTrack === true ? '#10b981' : pct != null && pct >= 60 ? '#f59e0b' : '#ef4444';
                 const PERIOD_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling', all_time: 'All Time' };
                 const TYPE_LABELS = { target_value: 'Target', cumulative: 'Cumulative', range: 'Range', streak: 'Streak', best_of: 'Personal Best' };
@@ -1072,18 +1430,71 @@ export default function App() {
                       </div>
                     </div>
                     {pct !== null ? (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                          <span style={{ color: '#6b7280' }}>{prog?.periodLabel ?? ''}</span>
-                          <span style={{ fontWeight: 600, color: barColor }}>
-                            {isOnTrack === true && <CheckCircle2 size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
-                            {Math.round(pct)}%
-                          </span>
-                        </div>
-                        <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
-                        </div>
-                      </>
+                      (() => {
+                        const hasEndpoints = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
+                        const isLIB = goal.direction === 'lower_is_better';
+                        const current = prog?.current ?? null;
+
+                        // Recompute pct from start→target range when startingValue is available
+                        let displayPct = pct;
+                        if (hasEndpoints && current !== null) {
+                          const range = isLIB
+                            ? (goal.startingValue - goal.targetValue)
+                            : (goal.targetValue - goal.startingValue);
+                          if (range !== 0) {
+                            const moved = isLIB
+                              ? (goal.startingValue - current)
+                              : (current - goal.startingValue);
+                            displayPct = Math.min(100, Math.max(0, (moved / range) * 100));
+                          }
+                        }
+
+                        // Amber while in-progress, green when done — no red for target goals
+                        const displayColor = displayPct >= 100 ? '#10b981' : '#f59e0b';
+
+                        return hasEndpoints ? (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11, marginBottom: 4 }}>
+                              <span style={{ color: '#9ca3af' }}>Start: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV(goal.startingValue)}</span></span>
+                              {current != null && <span style={{ color: '#374151', fontWeight: 600, fontSize: 12 }}>{fmtV(current)}</span>}
+                              <span style={{ color: '#9ca3af' }}>Goal: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV(goal.targetValue)}</span></span>
+                            </div>
+                            <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${displayPct}%`, height: '100%', background: displayColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: 11, marginTop: 3 }}>
+                              <span style={{ fontWeight: 600, color: displayColor }}>
+                                {isOnTrack === true && <CheckCircle2 size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
+                                {current != null
+                                  ? displayPct >= 100
+                                    ? `Goal reached!`
+                                    : `${fmtV(Math.abs(+current - goal.targetValue))} to go`
+                                  : `${Math.round(displayPct)}%`}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                              <span style={{ color: '#6b7280' }}>{prog?.periodLabel ?? ''}</span>
+                            </div>
+                            <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
+                            </div>
+                            {(() => {
+                              const label = goalProgressLabel(goal.goalType, goal.direction, prog, fmtV);
+                              return label ? (
+                                <div style={{ textAlign: 'right', fontSize: 11, marginTop: 3 }}>
+                                  <span style={{ fontWeight: 600, color: barColor }}>
+                                    {isOnTrack === true && <CheckCircle2 size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
+                                    {label}
+                                  </span>
+                                </div>
+                              ) : null;
+                            })()}
+                          </>
+                        );
+                      })()
                     ) : (
                       <div style={{ fontSize: 12, color: '#9ca3af' }}>No progress data yet</div>
                     )}
@@ -1196,6 +1607,15 @@ export default function App() {
                           };
                           const now = new Date();
                           const isToday = toKey(selectedDate) === toKey(new Date());
+
+                          // If today already has a value, tap goes to history
+                          if (hasValue && isToday) {
+                            setPrevViewMode(viewMode);
+                            setHistoryMetric(meta.cardName);
+                            setViewMode('metric-history');
+                            return;
+                          }
+
                           const defaultTime = isToday
                             ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
                             : '09:00';
@@ -1392,10 +1812,20 @@ export default function App() {
                               }
                               const { goal, prog } = display;
                               if (!prog) return null;
-                              const pct = (prog.pct ?? 0) * 100;
                               const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
+                              const isLIBc = goal.direction === 'lower_is_better';
+                              const hasEP = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
+                              let pct = (prog.pct ?? 0) * 100;
+                              if (hasEP && prog.current != null) {
+                                const range = isLIBc ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
+                                if (range !== 0) {
+                                  const moved = isLIBc ? (goal.startingValue - prog.current) : (prog.current - goal.startingValue);
+                                  pct = Math.min(100, Math.max(0, (moved / range) * 100));
+                                }
+                              }
                               const barColor = isLBC
                                 ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
+                                : hasEP ? (pct >= 100 ? '#10b981' : '#f59e0b')
                                 : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
                               return (
                                 <div style={{ marginTop: 6, width: '80%', margin: '6px auto 0' }}>
@@ -1403,7 +1833,10 @@ export default function App() {
                                     <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
                                   </div>
                                   <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>
-                                    {Math.round(pct)}% {isLBC ? 'of limit' : 'of goal'}
+                                    {(() => {
+                                      const lbl = goalProgressLabel(goal.goalType, goal.direction, prog, v => `${v}${metricConfig[meta.cardName]?.uom ? '\u2009' + metricConfig[meta.cardName].uom : ''}`);
+                                      return lbl ?? `${Math.round(pct)}%`;
+                                    })()}
                                     {display.mode === 'single-program' && (
                                       <span style={{ fontWeight: 400, color: '#9ca3af' }}> · {display.programName}</span>
                                     )}
@@ -1430,6 +1863,56 @@ export default function App() {
                   </button>
                   {cardMenuOpen === meta.cardName && (
                     <div className="card-menu-popup">
+                      <button
+                        className="card-menu-item"
+                        onClick={() => {
+                          const toIsoDate = (d) => {
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            return `${yyyy}-${mm}-${dd}`;
+                          };
+                          const now = new Date();
+                          const isToday = toKey(selectedDate) === toKey(new Date());
+                          const defaultTime = isToday
+                            ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                            : '09:00';
+                          const baseOpen = {
+                            type: meta.cardName,
+                            ...meta,
+                            metricValues,
+                            tempEntryDate: toIsoDate(selectedDate),
+                            tempEntryTime: defaultTime,
+                          };
+                          if ((meta.metricNames?.length ?? 0) === 1) {
+                            const metricName = meta.metricNames[0];
+                            const data = (records.dataPoints ?? {})[metricName] ?? {};
+                            const entries = Array.isArray(data.entries) ? data.entries : [];
+                            const dayStart = new Date(selectedDate);
+                            dayStart.setHours(0, 0, 0, 0);
+                            const startMs = dayStart.getTime();
+                            const endMs = startMs + 24 * 60 * 60 * 1000;
+                            const dayEntries = entries.filter(e => e.ts >= startMs && e.ts < endMs);
+                            if (dayEntries.length === 1) {
+                              const e = dayEntries[0];
+                              const dt = new Date(e.ts);
+                              const timeStr = `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`;
+                              const mv = [{ ...metricValues[0], value: e.value }];
+                              setOpen({ ...baseOpen, metricValues: mv, tempEntryDate: toIsoDate(dt), tempEntryTime: timeStr, editEntryTs: e.ts, entryAction: 'update' });
+                              setCardMenuOpen(null);
+                              return;
+                            } else if (dayEntries.length > 1) {
+                              setOpen({ ...baseOpen, showEntryList: true });
+                              setCardMenuOpen(null);
+                              return;
+                            }
+                          }
+                          setOpen(baseOpen);
+                          setCardMenuOpen(null);
+                        }}
+                      >
+                        Enter data
+                      </button>
                       <button
                         className="card-menu-item"
                         onClick={() => {
@@ -1516,26 +1999,52 @@ export default function App() {
             // Both 'standalone' and 'single-program' render the same detail card
             const { goal, prog, programName } = display;
             if (!prog) return null;
-            const pctDisplay = prog.pct != null ? Math.round(prog.pct * 100) : null;
+            const cfg2 = metricConfig[historyMetric] ?? {};
+            const uom2 = cfg2.uom ?? '';
+            const fmtV2 = v => v != null ? `${v}${uom2 ? '\u2009' + uom2 : ''}` : '\u2014';
             const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
-            const trackColor = prog.isOnTrack == null ? '#9ca3af' : prog.isOnTrack ? '#10b981' : '#f59e0b';
-            const barColor = isLBC && pctDisplay != null
-              ? (pctDisplay <= 60 ? '#10b981' : pctDisplay <= 85 ? '#f59e0b' : '#ef4444')
-              : trackColor;
-            const trackLabel = prog.isOnTrack == null ? 'No data' : prog.isOnTrack ? 'On Track' : 'Off Track';
-            let currentDisplay = null;
-            if (prog.current != null) {
-              const cfg = metricConfig[historyMetric] ?? {};
-              const uom = cfg.uom ?? '';
-              if (goal.goalType === 'range') {
-                currentDisplay = `Avg ${prog.current}${uom ? ` ${uom}` : ''} \u00b7 ${prog.inRangeCount ?? 0} of ${prog.entryCount ?? 0} in range`;
-              } else if (goal.goalType === 'streak') {
-                currentDisplay = `${prog.current} day${prog.current !== 1 ? 's' : ''} / ${prog.target} day target`;
-              } else {
-                const targetStr = prog.target != null ? ` / ${prog.target}${uom ? ` ${uom}` : ''}` : '';
-                currentDisplay = `${prog.current}${uom ? ` ${uom}` : ''}${targetStr}`;
+            const isLIB = goal.direction === 'lower_is_better';
+            const hasEndpoints = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
+
+            const progressLabel = goalProgressLabel(goal.goalType, goal.direction, prog, fmtV2);
+
+            // Determine bar pct (recompute for target_value with startingValue)
+            let barPct = prog.pct != null ? prog.pct * 100 : null;
+            if (hasEndpoints && prog.current != null) {
+              const range = isLIB ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
+              if (range !== 0) {
+                const moved = isLIB ? (goal.startingValue - prog.current) : (prog.current - goal.startingValue);
+                barPct = Math.min(100, Math.max(0, (moved / range) * 100));
               }
             }
+            const pctDisplay = barPct != null ? Math.round(barPct) : null;
+
+            // Track label (top-right badge)
+            const trackLabelForGoal = () => {
+              if (goal.goalType === 'range') {
+                if (prog.current == null) return { text: 'No data', color: '#9ca3af' };
+                const inR = prog.current >= prog.targetMin && prog.current <= prog.targetMax;
+                return inR ? { text: 'In range', color: '#10b981' } : { text: 'Out of range', color: '#f59e0b' };
+              }
+              if (hasEndpoints) {
+                return pctDisplay >= 100 ? { text: 'Goal reached!', color: '#10b981' } : { text: 'In progress', color: '#9ca3af' };
+              }
+              if (goal.goalType === 'streak') {
+                return prog.isOnTrack ? { text: 'On Track', color: '#10b981' } : { text: 'In progress', color: '#9ca3af' };
+              }
+              return prog.isOnTrack == null ? { text: 'No data', color: '#9ca3af' }
+                : prog.isOnTrack ? { text: 'On Track', color: '#10b981' }
+                : { text: 'Off Track', color: '#f59e0b' };
+            };
+            const { text: trackLabel, color: trackColor } = trackLabelForGoal();
+
+            // Bar color
+            const barColor = goal.goalType === 'range'
+              ? (prog.isOnTrack ? '#10b981' : '#f59e0b')
+              : isLBC ? (pctDisplay <= 60 ? '#10b981' : pctDisplay <= 85 ? '#f59e0b' : '#ef4444')
+              : hasEndpoints ? (pctDisplay >= 100 ? '#10b981' : '#f59e0b')
+              : (prog.isOnTrack ? '#10b981' : pctDisplay >= 60 ? '#f59e0b' : '#ef4444');
+
             return (
               <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
@@ -1546,12 +2055,27 @@ export default function App() {
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 600, color: trackColor, whiteSpace: 'nowrap', marginLeft: 8 }}>{trackLabel}</span>
                 </div>
-                {pctDisplay != null && (
+                {barPct != null && (
                   <div style={{ marginBottom: 4 }}>
+                    {hasEndpoints && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11, marginBottom: 4 }}>
+                        <span style={{ color: '#9ca3af' }}>Start: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV2(goal.startingValue)}</span></span>
+                        {prog.current != null && <span style={{ color: '#374151', fontWeight: 600, fontSize: 13 }}>{fmtV2(prog.current)}</span>}
+                        <span style={{ color: '#9ca3af' }}>Goal: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV2(goal.targetValue)}</span></span>
+                      </div>
+                    )}
+                    {goal.goalType === 'range' && prog.targetMin != null && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                        <span style={{ color: '#9ca3af' }}>Range: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV2(prog.targetMin)} – {fmtV2(prog.targetMax)}</span></span>
+                        {prog.current != null && <span style={{ color: '#374151', fontWeight: 600 }}>{fmtV2(prog.current)}</span>}
+                      </div>
+                    )}
                     <div style={{ height: 6, borderRadius: 3, background: '#e5e7eb', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${Math.min(pctDisplay, 100)}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
+                      <div style={{ height: '100%', width: `${Math.min(barPct, 100)}%`, background: barColor, borderRadius: 3, transition: 'width 0.3s' }} />
                     </div>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{pctDisplay}% {isLBC ? 'of limit used' : 'complete'}{currentDisplay ? ` \u00b7 ${currentDisplay}` : ''}</div>
+                    {progressLabel && (
+                      <div style={{ fontSize: 12, color: barColor, fontWeight: 600, marginTop: 3 }}>{progressLabel}</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2064,13 +2588,19 @@ export default function App() {
                   return <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>Loading…</div>;
                 }
                 const available = open.catalog ?? [];
-                return available.length > 0 ? (
-                  <ul className="add-metric-list">
+                return (
+                  <div className="picker-scroll" style={{ display: 'grid', gap: 6, marginBottom: 8, maxHeight: 280, overflowY: 'auto' }}>
+                    {available.length === 0 && (
+                      <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>
+                        All available metrics are already on your dashboard.
+                      </div>
+                    )}
                     {available.map(m => {
                       const Icon = METRIC_ICONS[m.icon] ?? Activity;
                       return (
-                        <li key={m.metricId}>
-                          <button className="add-metric-item" onClick={async () => {
+                        <button
+                          key={m.metricId}
+                          onClick={async () => {
                             try {
                               const res = await fetch(`${API}/subscription`, {
                                 method: 'POST',
@@ -2091,27 +2621,35 @@ export default function App() {
                             setActiveCards(next);
                             try { localStorage.setItem('activeCards', JSON.stringify(next)); } catch {}
                             setOpen(null);
-                          }}>
-                            <Icon size={18} style={{ color: '#1530E8', flexShrink: 0 }} />
-                            <span style={{ flex: 1 }}>{m.friendlyName}{m.reactivate ? ' (re-activate)' : ''}</span>
-                            <Plus size={13} style={{ opacity: 0.45 }} />
-                          </button>
-                        </li>
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'white', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                          onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
+                          onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+                        >
+                          <Icon size={18} style={{ color: '#6366f1', flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 13 }}>{m.friendlyName}{m.reactivate ? ' (re-activate)' : ''}</div>
+                            {m.uom && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Measured in {m.uom}</div>}
+                          </div>
+                        </button>
                       );
                     })}
-                  </ul>
-                ) : (
-                  <div style={{ textAlign: 'center', color: '#9ca3af', padding: '16px 0', fontSize: 13 }}>
-                    All available metrics are already on your dashboard.
+                    <button
+                      onClick={() => setOpen({ ...open, screen: 'custom' })}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: '1.5px dashed #d1d5db', borderRadius: 8, background: 'transparent', cursor: 'pointer', marginTop: 2 }}
+                      onMouseOver={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.background = '#f5f3ff'; }}
+                      onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <Plus size={15} style={{ color: '#6366f1', flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#4f46e5' }}>Define your own metric</div>
+                        <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Create a custom health measurement</div>
+                      </div>
+                    </button>
                   </div>
                 );
               })()}
-              <div className="add-metric-sep" />
-              <button className="add-metric-custom-btn" onClick={() => setOpen({ ...open, screen: 'custom' })}>
-                <Plus size={15} />
-                <span>Define your own metric</span>
-              </button>
-              <DialogFooter style={{ marginTop: 16 }}>
+              <DialogFooter style={{ marginTop: 8 }}>
                 <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
               </DialogFooter>
             </>)}
@@ -2122,8 +2660,14 @@ export default function App() {
                 <button
                   type="button"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', fontSize: 18, color: '#6b7280', lineHeight: 1 }}
-                  onClick={() => setOpen({ ...open, screen: 'catalog', tempDefError: undefined })}
-                  aria-label="Back to catalog"
+                  onClick={() => {
+                    if (open._returnTo) {
+                      setOpen({ ...open._returnTo, screen: 'pick-metric', saveError: undefined });
+                    } else {
+                      setOpen({ ...open, screen: 'catalog', tempDefError: undefined });
+                    }
+                  }}
+                  aria-label="Back"
                 >←</button>
                 <DialogTitle>New Metric</DialogTitle>
               </DialogHeader>
@@ -2250,7 +2794,13 @@ export default function App() {
               </div>
 
               <DialogFooter>
-                <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'catalog', tempDefError: undefined })}>Back</Button>
+                <Button variant="secondary" onClick={() => {
+                  if (open._returnTo) {
+                    setOpen({ ...open._returnTo, screen: 'pick-metric', saveError: undefined });
+                  } else {
+                    setOpen({ ...open, screen: 'catalog', tempDefError: undefined });
+                  }
+                }}>Back</Button>
                 <Button onClick={handleSaveCustomMetric}>Save Metric</Button>
               </DialogFooter>
             </>)}
@@ -2879,7 +3429,7 @@ export default function App() {
               );
             })()}
 
-            {/* ── Screen 2: Configure ── */}
+            {/* ── Screen 2: Configure + Period (combined) ── */}
             {open.screen === 'configure' && (() => {
               const draft = open.draft ?? {};
               const templates = METRIC_GOAL_TEMPLATES[open.metricId] ?? [];
@@ -2889,6 +3439,13 @@ export default function App() {
                 { value: 'range',        label: 'Range' },
                 { value: 'streak',       label: 'Streak' },
                 { value: 'best_of',      label: 'Personal Best' },
+              ];
+              const PERIOD_OPTIONS = [
+                { value: 'daily',    label: 'Daily' },
+                { value: 'weekly',   label: 'Weekly' },
+                { value: 'monthly',  label: 'Monthly' },
+                { value: 'rolling',  label: 'Rolling' },
+                { value: 'all_time', label: 'All Time' },
               ];
               return (
                 <>
@@ -2945,6 +3502,18 @@ export default function App() {
                         </div>
                       </div>
                     )}
+                    {draft.goalType === 'target_value' && (
+                      <div>
+                        <Label>Starting Value <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span></Label>
+                        <Input
+                          type="number"
+                          style={{ width: 'auto' }}
+                          placeholder="Your value at the start"
+                          value={draft.startingValue ?? ''}
+                          onChange={e => setOpen({ ...open, draft: { ...draft, startingValue: e.target.value !== '' ? Number(e.target.value) : null } })}
+                        />
+                      </div>
+                    )}
                     {draft.goalType === 'range' && (
                       <div style={{ display: 'flex', gap: 10 }}>
                         <div style={{ flex: 1 }}>
@@ -2968,41 +3537,6 @@ export default function App() {
                         />
                       </div>
                     )}
-                    {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
-                  </div>
-                  <DialogFooter>
-                    <Button variant="secondary" onClick={() => {
-                      if (templates.length > 0 && !open.editGoalId) {
-                        setOpen({ ...open, screen: 'templates', saveError: undefined });
-                      } else {
-                        setOpen(null);
-                      }
-                    }}>
-                      {templates.length > 0 && !open.editGoalId ? 'Back' : 'Cancel'}
-                    </Button>
-                    <Button onClick={() => {
-                      const d = open.draft ?? {};
-                      if (!d.name?.trim()) { setOpen({ ...open, saveError: 'Please enter a goal name.' }); return; }
-                      setOpen({ ...open, screen: 'period', saveError: undefined });
-                    }}>Next</Button>
-                  </DialogFooter>
-                </>
-              );
-            })()}
-
-            {/* ── Screen 3: Period ── */}
-            {open.screen === 'period' && (() => {
-              const draft = open.draft ?? {};
-              const PERIOD_OPTIONS = [
-                { value: 'daily',    label: 'Daily' },
-                { value: 'weekly',   label: 'Weekly' },
-                { value: 'monthly',  label: 'Monthly' },
-                { value: 'rolling',  label: 'Rolling' },
-                { value: 'all_time', label: 'All Time' },
-              ];
-              return (
-                <>
-                  <div style={{ display: 'grid', gap: 14 }}>
                     <div>
                       <Label>Period</Label>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
@@ -3011,7 +3545,7 @@ export default function App() {
                             key={opt.value}
                             onClick={() => setOpen({ ...open, draft: { ...draft, period: opt.value } })}
                             style={{
-                              padding: '6px 14px', fontSize: 13, borderRadius: 6, cursor: 'pointer', border: '1px solid',
+                              padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid',
                               borderColor: draft.period === opt.value ? '#6366f1' : '#d1d5db',
                               background: draft.period === opt.value ? '#eef2ff' : 'white',
                               color: draft.period === opt.value ? '#4f46e5' : '#374151',
@@ -3020,18 +3554,18 @@ export default function App() {
                           >{opt.label}</button>
                         ))}
                       </div>
+                      {draft.period === 'rolling' && (
+                        <div style={{ marginTop: 8 }}>
+                          <Label>Rolling Window (days)</Label>
+                          <Input
+                            type="number"
+                            style={{ width: 'auto' }}
+                            value={draft.periodDays ?? ''}
+                            onChange={e => setOpen({ ...open, draft: { ...draft, periodDays: e.target.value !== '' ? Number(e.target.value) : null } })}
+                          />
+                        </div>
+                      )}
                     </div>
-                    {draft.period === 'rolling' && (
-                      <div>
-                        <Label>Rolling Window (days)</Label>
-                        <Input
-                          type="number"
-                          style={{ width: 'auto' }}
-                          value={draft.periodDays ?? ''}
-                          onChange={e => setOpen({ ...open, draft: { ...draft, periodDays: e.target.value !== '' ? Number(e.target.value) : null } })}
-                        />
-                      </div>
-                    )}
                     <div>
                       <Label>End Date (optional)</Label>
                       <Input
@@ -3044,7 +3578,15 @@ export default function App() {
                     {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
                   </div>
                   <DialogFooter>
-                    <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'configure', saveError: undefined })}>Back</Button>
+                    <Button variant="secondary" onClick={() => {
+                      if (templates.length > 0 && !open.editGoalId) {
+                        setOpen({ ...open, screen: 'templates', saveError: undefined });
+                      } else {
+                        setOpen(null);
+                      }
+                    }}>
+                      {templates.length > 0 && !open.editGoalId ? 'Back' : 'Cancel'}
+                    </Button>
                     <Button onClick={handleSaveGoal} disabled={open.isSaving}>
                       {open.isSaving ? 'Saving…' : open.editGoalId ? 'Update Goal' : 'Save Goal'}
                     </Button>
@@ -3054,6 +3596,272 @@ export default function App() {
             })()}
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* ===== PROGRAM WIZARD DIALOG ===== */}
+      <Dialog open={open?.type === 'program-wizard'} onOpenChange={v => { if (!v) setOpen(null); }}>
+        {open?.type === 'program-wizard' && (() => {
+          const draft = open.draft ?? {};
+          const items = draft.items ?? [];
+
+          // ── Screen: name ──────────────────────────────────────────────
+          if (open.screen === 'name') {
+            return (
+              <DialogContent className="narrow-dialog">
+                <DialogHeader>
+                  <DialogTitle>{open.programId ? 'Edit Program' : 'Create Program'}</DialogTitle>
+                </DialogHeader>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <fieldset className="notched-field">
+                    <legend className="notched-label">Program Name *</legend>
+                    <input
+                      type="text" autoFocus
+                      value={draft.name ?? ''}
+                      onChange={e => setOpen({ ...open, draft: { ...draft, name: e.target.value }, saveError: undefined })}
+                      style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
+                    />
+                  </fieldset>
+                  <fieldset className="notched-field">
+                    <legend className="notched-label">Description (optional)</legend>
+                    <input
+                      type="text"
+                      value={draft.description ?? ''}
+                      placeholder="What is this program for?"
+                      onChange={e => setOpen({ ...open, draft: { ...draft, description: e.target.value } })}
+                      style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
+                    />
+                  </fieldset>
+                  {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
+                </div>
+                <DialogFooter>
+                  <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+                  <Button onClick={() => {
+                    if (!draft.name?.trim()) { setOpen({ ...open, saveError: 'Please enter a program name.' }); return; }
+                    setOpen({ ...open, screen: 'items', saveError: undefined });
+                  }}>Next</Button>
+                </DialogFooter>
+              </DialogContent>
+            );
+          }
+
+          // ── Screen: items (list of added metric goals) ─────────────────
+          if (open.screen === 'items') {
+            return (
+              <DialogContent className="narrow-dialog">
+                <DialogHeader>
+                  <DialogTitle>{draft.name}</DialogTitle>
+                </DialogHeader>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>
+                    {items.length === 0
+                      ? 'No metric goals yet. Add at least one.'
+                      : `${items.length} metric goal${items.length !== 1 ? 's' : ''} added`}
+                  </div>
+                  {items.map((item, idx) => {
+                    const cfg = metricConfig[item.metricId] ?? {};
+                    const title = cfg.title || toSentenceCase(item.metricId);
+                    return (
+                      <div key={item.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{item.goalName || title}</div>
+                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{title} · {(item.goalType ?? '').replace(/_/g, ' ')} · {item.period}</div>
+                        </div>
+                        <button
+                          onClick={() => setOpen({ ...open, draft: { ...draft, items: items.filter((_, i) => i !== idx) } })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 4 }}
+                          title="Remove"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button
+                    onClick={() => setOpen({ ...open, screen: 'pick-metric', saveError: undefined })}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', border: '1px dashed #d1d5db', borderRadius: 8, background: 'transparent', cursor: 'pointer', marginTop: 4 }}
+                  >
+                    <Plus size={15} style={{ color: '#6366f1', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: '#4f46e5', fontWeight: 600 }}>Add Metric Goal</span>
+                  </button>
+                </div>
+                {open.saveError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 6 }}>{open.saveError}</div>}
+                <DialogFooter>
+                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'name', saveError: undefined })}>Back</Button>
+                  <Button onClick={handleSaveProgram} disabled={open.isSaving}>
+                    {open.isSaving ? 'Saving…' : open.programId ? 'Update Program' : 'Save & Enroll'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            );
+          }
+
+          // ── Screen: pick-metric ────────────────────────────────────────
+          if (open.screen === 'pick-metric') {
+            const usedMetrics = new Set(items.map(i => i.metricId));
+            const available = cardDefinitions.filter(cd => !usedMetrics.has(cd.cardName));
+            return (
+              <DialogContent className="narrow-dialog">
+                <DialogHeader>
+                  <DialogTitle>Choose a Metric</DialogTitle>
+                </DialogHeader>
+                <div className="picker-scroll" style={{ display: 'grid', gap: 6, marginBottom: 8, maxHeight: 320, overflowY: 'auto' }}>
+                  {available.length === 0 && (
+                    <div style={{ fontSize: 13, color: '#9ca3af', padding: '8px 0 4px' }}>
+                      All subscribed metrics are already in this program.
+                    </div>
+                  )}
+                  {available.map(cd => {
+                    const cfg = metricConfig[cd.cardName] ?? {};
+                    const Icon = cd.icon ?? Activity;
+                    return (
+                      <button
+                        key={cd.cardName}
+                        onClick={() => {
+                          const todayIso = new Date().toISOString().split('T')[0];
+                          const itemDraft = {
+                            ...PROGRAM_ITEM_DEFAULTS,
+                            itemId:   `item-${Date.now().toString(36)}`,
+                            metricId: cd.cardName,
+                            goalName: `${cfg.title || toSentenceCase(cd.cardName)} goal`,
+                            startDate: todayIso,
+                          };
+                          setOpen({ ...open, screen: 'item-goal', itemDraft, saveError: undefined });
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'white', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+                        onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
+                        onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+                      >
+                        <Icon size={18} style={{ color: '#6366f1', flexShrink: 0 }} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{cfg.title || toSentenceCase(cd.cardName)}</div>
+                          {cfg.uom && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Measured in {cfg.uom}</div>}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <DialogFooter>
+                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'items', saveError: undefined })}>Back</Button>
+                  <Button variant="secondary" onClick={() => {
+                    const stashedProgramWizard = open;
+                    setOpen({ type: 'add-metric', screen: 'custom', catalog: null, _returnTo: stashedProgramWizard });
+                  }}><Plus size={13} style={{ marginRight: 4 }} />New Metric</Button>
+                </DialogFooter>
+              </DialogContent>
+            );
+          }
+
+          // ── Screen: item-goal (configure the goal for the chosen metric) ──
+          if (open.screen === 'item-goal') {
+            const id = open.itemDraft ?? {};
+            const cfg = metricConfig[id.metricId] ?? {};
+            const metricTitle = cfg.title || toSentenceCase(id.metricId ?? '');
+            const GOAL_TYPE_OPTIONS = [
+              { value: 'target_value', label: 'Target Value' },
+              { value: 'cumulative',   label: 'Cumulative' },
+              { value: 'range',        label: 'Range' },
+              { value: 'streak',       label: 'Streak' },
+            ];
+            const PERIOD_OPTIONS = [
+              { value: 'daily',    label: 'Daily' },
+              { value: 'weekly',   label: 'Weekly' },
+              { value: 'monthly',  label: 'Monthly' },
+              { value: 'rolling',  label: 'Rolling' },
+              { value: 'all_time', label: 'All Time' },
+            ];
+            return (
+              <DialogContent className="narrow-dialog">
+                <DialogHeader>
+                  <DialogTitle>Goal for {metricTitle}</DialogTitle>
+                </DialogHeader>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <div>
+                    <Label>Goal Name</Label>
+                    <Input
+                      value={id.goalName ?? ''}
+                      placeholder={`e.g. Weekly ${metricTitle} target`}
+                      onChange={e => setOpen({ ...open, itemDraft: { ...id, goalName: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Goal Type</Label>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                      {GOAL_TYPE_OPTIONS.map(opt => (
+                        <button key={opt.value}
+                          onClick={() => setOpen({ ...open, itemDraft: { ...id, goalType: opt.value } })}
+                          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.goalType === opt.value ? '#6366f1' : '#d1d5db', background: id.goalType === opt.value ? '#eef2ff' : 'white', color: id.goalType === opt.value ? '#4f46e5' : '#374151', fontWeight: id.goalType === opt.value ? 600 : 400 }}
+                        >{opt.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {(id.goalType === 'target_value' || id.goalType === 'cumulative') && (
+                    <div>
+                      <Label>Target Value</Label>
+                      <Input type="number" style={{ width: 'auto' }} value={id.targetValue ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetValue: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        {[{ v: 'lower_is_better', label: '↓ Lower is better' }, { v: 'higher_is_better', label: '↑ Higher is better' }].map(d => (
+                          <button key={d.v} onClick={() => setOpen({ ...open, itemDraft: { ...id, direction: d.v } })}
+                            style={{ padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.direction === d.v ? '#6366f1' : '#d1d5db', background: id.direction === d.v ? '#eef2ff' : 'white', color: id.direction === d.v ? '#4f46e5' : '#374151', fontWeight: id.direction === d.v ? 600 : 400 }}
+                          >{d.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {id.goalType === 'target_value' && (
+                    <div>
+                      <Label>Starting Value <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span></Label>
+                      <Input type="number" style={{ width: 'auto' }} placeholder="Your value at the start" value={id.startingValue ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, startingValue: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                    </div>
+                  )}
+                  {id.goalType === 'range' && (
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <div style={{ flex: 1 }}><Label>Min</Label><Input type="number" style={{ width: 'auto' }} value={id.targetMin ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetMin: e.target.value !== '' ? Number(e.target.value) : null } })} /></div>
+                      <div style={{ flex: 1 }}><Label>Max</Label><Input type="number" style={{ width: 'auto' }} value={id.targetMax ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetMax: e.target.value !== '' ? Number(e.target.value) : null } })} /></div>
+                    </div>
+                  )}
+                  {id.goalType === 'streak' && (
+                    <div>
+                      <Label>Streak Target (consecutive days)</Label>
+                      <Input type="number" style={{ width: 'auto' }} value={id.streakTarget ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, streakTarget: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                    </div>
+                  )}
+                  <div>
+                    <Label>Period</Label>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                      {PERIOD_OPTIONS.map(opt => (
+                        <button key={opt.value}
+                          onClick={() => setOpen({ ...open, itemDraft: { ...id, period: opt.value } })}
+                          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.period === opt.value ? '#6366f1' : '#d1d5db', background: id.period === opt.value ? '#eef2ff' : 'white', color: id.period === opt.value ? '#4f46e5' : '#374151', fontWeight: id.period === opt.value ? 600 : 400 }}
+                        >{opt.label}</button>
+                      ))}
+                    </div>
+                    {id.period === 'rolling' && (
+                      <div style={{ marginTop: 8 }}>
+                        <Label>Rolling Window (days)</Label>
+                        <Input type="number" style={{ width: 'auto' }} value={id.periodDays ?? ''}
+                          onChange={e => setOpen({ ...open, itemDraft: { ...id, periodDays: e.target.value !== '' ? Number(e.target.value) : null } })} />
+                      </div>
+                    )}
+                  </div>
+                  {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
+                </div>
+                <DialogFooter>
+                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'pick-metric', itemDraft: undefined, saveError: undefined })}>Back</Button>
+                  <Button onClick={() => {
+                    if (!id.goalName?.trim()) { setOpen({ ...open, saveError: 'Please enter a goal name.' }); return; }
+                    if ((id.goalType === 'target_value' || id.goalType === 'cumulative') && id.targetValue == null) { setOpen({ ...open, saveError: 'Please enter a target value.' }); return; }
+                    if (id.goalType === 'range' && (id.targetMin == null || id.targetMax == null)) { setOpen({ ...open, saveError: 'Please enter Min and Max values.' }); return; }
+                    if (id.goalType === 'streak' && !id.streakTarget) { setOpen({ ...open, saveError: 'Please enter a streak target.' }); return; }
+                    const newItems = [...items, id];
+                    setOpen({ ...open, screen: 'items', draft: { ...draft, items: newItems }, itemDraft: undefined, saveError: undefined });
+                  }}>Add to Program</Button>
+                </DialogFooter>
+              </DialogContent>
+            );
+          }
+
+          return null;
+        })()}
       </Dialog>
     </div>
   );

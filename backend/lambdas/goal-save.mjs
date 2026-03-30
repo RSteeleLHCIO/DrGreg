@@ -72,7 +72,7 @@ export const handler = async (event) => {
       metricId,    name,          goalType,     period,
       periodDays,  targetValue,   targetMin,    targetMax,
       direction,   aggregation,   streakTarget,
-      isActive,    startDate,     endDate,
+      isActive,    startDate,     endDate,      startingValue,
     } = body;
 
     // ── Required field validation ──────────────────────────────────────────
@@ -171,6 +171,7 @@ export const handler = async (event) => {
       period,
       periodDays:  period === "rolling"                                      ? periodDays  : null,
       targetValue: ["target_value", "cumulative", "best_of"].includes(goalType) ? targetValue : null,
+      startingValue: goalType === "target_value" && typeof startingValue === "number" && Number.isFinite(startingValue) ? startingValue : null,
       targetMin:   goalType === "range"  ? targetMin  : null,
       targetMax:   goalType === "range"  ? targetMax  : null,
       direction,
@@ -185,7 +186,7 @@ export const handler = async (event) => {
 
     await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));
 
-    return reply(200, { ok: true, goalId }, corsHeaders);
+    return reply(200, { ok: true, goal: item }, corsHeaders);
 
   } catch (err) {
     console.error("goal-save error:", err);

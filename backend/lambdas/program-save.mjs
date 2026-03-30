@@ -99,7 +99,7 @@ export const handler = async (event) => {
     let version     = 1;
 
     if (programId) {
-      // Update path — validate ID and verify ownership
+      // Upsert path — validate ID format, then check if it already exists
       if (!PROGRAM_RE.test(programId)) {
         return reply(400, { error: "Invalid programId format." }, corsHeaders);
       }
@@ -107,16 +107,18 @@ export const handler = async (event) => {
         TableName: TABLE,
         Key: { PK: makePK(), SK: makeSK(programId) },
       }));
-      if (!existing) return reply(404, { error: "Program not found." }, corsHeaders);
-      if (existing.createdBy !== userId) return reply(403, { error: "Access denied." }, corsHeaders);
-      // programType may not change
-      if (existing.programType !== programType) {
-        return reply(400, { error: "programType cannot be changed after creation." }, corsHeaders);
+      if (existing) {
+        // Update — enforce ownership and type immutability
+        if (existing.createdBy !== userId) return reply(403, { error: "Access denied." }, corsHeaders);
+        if (existing.programType !== programType) {
+          return reply(400, { error: "programType cannot be changed after creation." }, corsHeaders);
+        }
+        createdAt = existing.createdAt ?? now;
+        version   = (existing.version ?? 1) + 1;
       }
-      createdAt = existing.createdAt ?? now;
-      version   = (existing.version ?? 1) + 1;
+      // If not existing, fall through and create with the supplied programId
     } else {
-      // Create path — generate a new programId
+      // No programId supplied — generate one
       programId = `prog-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
     }
 

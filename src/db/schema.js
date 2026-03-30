@@ -343,6 +343,7 @@ export const GOAL_DEFAULTS = {
   period:        "weekly",         // 'daily'|'weekly'|'monthly'|'rolling'|'all_time'
   periodDays:    null,
   targetValue:   null,
+  startingValue: null,
   targetMin:     null,
   targetMax:     null,
   direction:     "lower_is_better", // 'lower_is_better'|'higher_is_better'|'exact'
@@ -498,8 +499,20 @@ export const DEMOGRAPHIC_GROUPS = [
 export const PROGRAM_ITEM_DEFAULTS = {
   itemId:         "",
   metricId:       "",
-  goalTemplateId: null,
+  goalTemplateId: null,   // refs METRIC_GOAL_TEMPLATES if a template was chosen
   notes:          "",
+  // Inline goal blueprint — populated when user configures goal in the program wizard
+  goalName:       "",
+  goalType:       "target_value",
+  period:         "weekly",
+  direction:      "lower_is_better",
+  aggregation:    "avg",
+  targetValue:    null,
+  startingValue:  null,
+  targetMin:      null,
+  targetMax:      null,
+  streakTarget:   null,
+  periodDays:     null,
 };
 
 export const PROGRAM_DEFAULTS = {
