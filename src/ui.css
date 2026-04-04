@@ -368,6 +368,25 @@ body {
     /* small but usable */
 }
 
+/* Goal wizard dialog — wider to give the wizard steps room to breathe */
+.dialog-content.goal-wizard-dialog {
+    display: block;
+    box-sizing: border-box;
+    width: min(80vw, 560px);
+    min-width: min(60vw, 360px);
+}
+
+.dialog-content.goal-wizard-dialog > div {
+    margin: 0;
+}
+
+.dialog-content.goal-wizard-dialog .dialog-footer {
+    margin: 12px 0 0 0;
+    padding: 12px 0 0 0;
+    border-top: 1px solid #e5e7eb;
+    background: transparent;
+}
+
 .dialog-content.narrow-dialog>div {
     margin: 0;
     /* avoid extra horizontal width from margins */

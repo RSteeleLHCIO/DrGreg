@@ -4,7 +4,8 @@
  * PUT /metric
  * Headers: Authorization: Bearer <jwt>
  * Body:    { metricId, friendlyName, icon, infoUrl, valueType,
- *            sliderEnabled, logicalMin, logicalMax, uom, falseTag, trueTag }
+ *            sliderEnabled, logicalMin, logicalMax, uom, falseTag, trueTag,
+ *            trackingFlavor }
  * Returns: { ok: true, metricId }
  *
  * DynamoDB item shape:
@@ -24,11 +25,24 @@ const TABLE       = process.env.TABLE_NAME  || "TobbiHealth";
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const JWT_SECRET  = process.env.JWT_SECRET  || "";
 
-const VALID_VALUE_TYPES = new Set(["numeric", "boolean", "string"]);
-const VALID_ICONS       = new Set([
+const TITLE_CASE_MINOR = new Set(["a","an","and","as","at","but","by","for","from",
+  "in","into","nor","of","off","on","onto","or","out","over","per","so","the",
+  "to","up","via","with","yet"]);
+function toTitleCase(str) {
+  return str.trim().replace(/\S+/g, (word, offset) => {
+    const lower = word.toLowerCase();
+    return (offset === 0 || !TITLE_CASE_MINOR.has(lower))
+      ? lower.charAt(0).toUpperCase() + lower.slice(1)
+      : lower;
+  });
+}
+
+const VALID_VALUE_TYPES  = new Set(["numeric", "boolean", "string"]);
+const VALID_ICONS        = new Set([
   "Activity", "Heart", "Droplet", "Gauge", "Moon", "Brain",
   "Bone", "Thermometer", "Pill", "Target", "Clock", "User",
 ]);
+const VALID_TRACKING_FLAVORS = new Set(["standalone", "cumulative"]);
 
 export const handler = async (event) => {
   const corsHeaders = {
@@ -54,6 +68,7 @@ export const handler = async (event) => {
       icon, infoUrl,
       sliderEnabled, logicalMin, logicalMax, uom,
       falseTag, trueTag,
+      trackingFlavor,
     } = body;
 
     // ── Validate required fields ──────────────────────────────────────────
@@ -79,13 +94,15 @@ export const handler = async (event) => {
       SK:           "#DEF",
       itemType:     "MetricDefinition",
       metricId,
-      friendlyName: friendlyName.trim().slice(0, 100),
+      friendlyName: toTitleCase(friendlyName.trim().slice(0, 100)),
       icon:         VALID_ICONS.has(icon) ? icon : "Activity",
       infoUrl:      safeInfoUrl,
       valueType,
       isPublic:     false,   // user-created metrics are personal/private by default
       createdBy:    userId,
       updatedAt:    now,
+      // trackingFlavor: 'standalone' | 'cumulative' | omitted (null/undefined → not stored)
+      ...(VALID_TRACKING_FLAVORS.has(trackingFlavor) ? { trackingFlavor } : {}),
     };
 
     if (valueType === "numeric") {

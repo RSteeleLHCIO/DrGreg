@@ -18,12 +18,26 @@ import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
 import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS, PROGRAM_ITEM_DEFAULTS } from './db/schema';
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
+import { GoalWizard } from "./components/goal-wizard";
 
 // Icon map for custom metric definitions (icon name → component)
 const METRIC_ICONS = { Activity, Heart, Droplet, Gauge, Moon, Brain, Bone, Thermometer, Pill, Target, Clock, User };
 
 function slugify(str) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || '';
+}
+
+// Minor words that stay lowercase unless they're the first word
+const TITLE_CASE_MINOR = new Set(['a','an','and','as','at','but','by','for','from',
+  'in','into','nor','of','off','on','onto','or','out','over','per','so','the',
+  'to','up','via','with','yet']);
+function toTitleCase(str) {
+  return str.trim().replace(/\S+/g, (word, offset) => {
+    const lower = word.toLowerCase();
+    return (offset === 0 || !TITLE_CASE_MINOR.has(lower))
+      ? lower.charAt(0).toUpperCase() + lower.slice(1)
+      : lower;
+  });
 }
 
 // Returns a human-friendly progress label for any goal type.
@@ -257,6 +271,8 @@ export default function App() {
           ...(def.infoUrl ? { infoUrl: def.infoUrl } : {}),
           ...(kind === 'slider' ? { logicalMin: def.logicalMin ?? 0, logicalMax: def.logicalMax ?? 10 } : {}),
           ...(kind === 'switch' ? { falseTag: def.falseTag || 'No', trueTag: def.trueTag || 'Yes' } : {}),
+          trackingFlavor:      def.trackingFlavor      ?? null,
+          defaultAggregation:  def.defaultAggregation  ?? null,
           currentDailyStreak:  def.currentDailyStreak  ?? 0,
           currentWeeklyStreak: def.currentWeeklyStreak ?? 0,
         };
@@ -610,8 +626,9 @@ export default function App() {
         type: 'goal-wizard',
         metricId,
         metricTitle,
-        screen: templates.length > 0 ? 'templates' : 'configure',
-        template: null,
+        screen: 'wizard',
+        wizStep: 'category',
+        wiz: {},
         draft: { ...GOAL_DEFAULTS, metricId, name: '', startDate: todayIso },
         editGoalId: undefined,
       });
@@ -683,7 +700,31 @@ export default function App() {
 
   function openProgramWizard(existingProgram) {
     if (existingProgram) {
-      setOpen({ type: 'program-wizard', screen: 'name', programId: existingProgram.programId, draft: { ...existingProgram } });
+      // Enrich stored items with goal config from the current enrollment/goals,
+      // because program-save only persists metricId/itemId/notes — not the goal blueprint.
+      const enrollment = enrollments.find(e => e.programId === existingProgram.programId && e.isActive);
+      const enrichedItems = (existingProgram.items ?? []).map(item => {
+        const enrolledGoal = enrollment
+          ? goals.find(g => enrollment.enrolledGoalIds?.includes(g.goalId) && g.metricId === item.metricId)
+          : null;
+        if (!enrolledGoal) return item;
+        return {
+          ...item,
+          _enrolledGoalId: enrolledGoal.goalId,
+          goalName:        enrolledGoal.name,
+          goalType:        enrolledGoal.goalType,
+          period:          enrolledGoal.period,
+          periodDays:      enrolledGoal.periodDays,
+          direction:       enrolledGoal.direction,
+          aggregation:     enrolledGoal.aggregation,
+          targetValue:     enrolledGoal.targetValue,
+          startingValue:   enrolledGoal.startingValue,
+          targetMin:       enrolledGoal.targetMin,
+          targetMax:       enrolledGoal.targetMax,
+          streakTarget:    enrolledGoal.streakTarget,
+        };
+      });
+      setOpen({ type: 'program-wizard', screen: 'name', programId: existingProgram.programId, draft: { ...existingProgram, items: enrichedItems } });
     } else {
       setOpen({ type: 'program-wizard', screen: 'name', programId: null, draft: { name: '', description: '', items: [] } });
     }
@@ -728,6 +769,7 @@ export default function App() {
       const enrolledGoalIds = [];
       for (const item of draft.items) {
         const goalBody = {
+          ...(item._enrolledGoalId ? { goalId: item._enrolledGoalId } : {}),
           metricId:     item.metricId,
           name:         item.goalName || item.metricId,
           goalType:     item.goalType,
@@ -875,7 +917,7 @@ export default function App() {
 
   function handleSaveCustomMetric() {
     const def = open?.tempDef ?? {};
-    const name = (def.friendly_name ?? '').trim();
+    const name = toTitleCase((def.friendly_name ?? '').trim());
     if (!name) { setOpen({ ...open, tempDefError: 'Friendly name is required.' }); return; }
     const id = slugify(name) || `custom-${Date.now()}`;
     if (metricConfig[id]) { setOpen({ ...open, tempDefError: `A metric named "${name}" already exists.` }); return; }
@@ -888,6 +930,7 @@ export default function App() {
       ...(def.info_url ? { infoUrl: def.info_url } : {}),
       ...(kind === 'slider' ? { logicalMin: def.logical_min ?? 0, logicalMax: def.logical_max ?? 10 } : {}),
       ...(def.value_type === 'boolean' ? { falseTag: def.false_tag || 'No', trueTag: def.true_tag || 'Yes' } : {}),
+      trackingFlavor: def.tracking_flavor ?? null,
     };
     const newCardEntry = { cardName: id, title: name, icon: METRIC_ICONS[def.icon] ?? Activity, metricNames: [id] };
     setMetricConfig(prev => ({ ...prev, [id]: newConfigEntry }));
@@ -910,6 +953,7 @@ export default function App() {
           sliderEnabled: !!def.slider_enabled, logicalMin: def.logical_min ?? 0,
           logicalMax: def.logical_max ?? 10, uom: def.uom || '',
           falseTag: def.false_tag || 'No', trueTag: def.true_tag || 'Yes',
+          trackingFlavor: def.tracking_flavor ?? null,
         }),
       })
       .then(() =>
@@ -1075,7 +1119,7 @@ export default function App() {
             <div className="home-panel home-panel--programs" onClick={() => setActiveSection('my-programs')}>
               <div>
                 <div className="home-panel-icon-wrap"><NestedRingsLogo size={48} highlight="programs" strokeColor="rgba(26,46,5,0.55)" fillColor="#4d7c0f" strokeOpacity={0.7} /></div>
-                <div className="home-panel-title">My Programs</div>
+                <div className="home-panel-title">My Journey</div>
                 <div className="home-panel-desc">Follow personalized health plans and structured wellness routines.</div>
               </div>
               <div className="home-panel-cta">Open →</div>
@@ -1092,7 +1136,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ===== MY PROGRAMS ===== */}
+      {/* ===== MY JOURNEY ===== */}
       {activeSection === 'my-programs' && (
         <div className="mydata-wrapper">
           {/* Hero banner */}
@@ -1104,7 +1148,7 @@ export default function App() {
               </button>
               <div className="mydata-hero-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <NestedRingsLogo size={28} highlight="programs" strokeColor="white" fillColor="white" strokeOpacity={0.8} />
-                My Programs
+                My Journey
               </div>
               <div className="mydata-hero-sub">{getGreeting()}, {user.firstName} &middot; {nowText}</div>
             </div>
@@ -1156,18 +1200,13 @@ export default function App() {
                             const cfg = metricConfig[item.metricId] ?? {};
                             const title = cfg.title || toSentenceCase(item.metricId);
                             const Icon = METRIC_ICONS[cfg._icon] ?? Activity;
-                            const prog2 = enrollment
-                              ? Object.values(goalProgress).find(gp =>
-                                  enrollment.enrolledGoalIds?.includes(gp.goalId) &&
-                                  goals.find(g => g.goalId === gp.goalId && g.metricId === item.metricId)
-                                )
-                              : null;
                             const enrolledGoal = enrollment
                               ? goals.find(g =>
                                   enrollment.enrolledGoalIds?.includes(g.goalId) &&
                                   g.metricId === item.metricId
                                 )
                               : null;
+                            const prog2 = enrolledGoal ? (goalProgress[enrolledGoal.goalId] ?? null) : null;
                             const pctRaw = prog2?.pct ?? null;
                             const itemUom = cfg.uom ?? '';
                             const fmtVi = v => v != null ? `${v}${itemUom ? '\u2009' + itemUom : ''}` : '—';
@@ -1342,12 +1381,12 @@ export default function App() {
           >
             <Plus />
           </Button>
-          {/* Jump to My Programs */}
+          {/* Jump to My Journey */}
           <Button
             variant="outline"
             className="btn-icon"
-            aria-label="My Programs"
-            title="My Programs"
+            aria-label="My Journey"
+            title="My Journey"
             style={{ marginLeft: 4 }}
             onClick={() => setActiveSection('my-programs')}
           >
@@ -1763,22 +1802,6 @@ export default function App() {
                               </p>
                             )}
                             {(() => {
-                              // Streak is a present-tense motivator — only meaningful on today or current view
-                              const isCurrentDay = viewMode === 'current' || toKey(selectedDate) === toKey(new Date());
-                              if (!isCurrentDay) return null;
-                              const primaryMetric = meta.metricNames?.[0];
-                              const cfg = primaryMetric ? metricConfig[primaryMetric] : null;
-                              const daily  = cfg?.currentDailyStreak  ?? 0;
-                              const weekly = cfg?.currentWeeklyStreak ?? 0;
-                              if (daily >= 2) {
-                                return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {daily} day streak</p>;
-                              }
-                              if (weekly >= 2) {
-                                return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {weekly} week streak</p>;
-                              }
-                              return null;
-                            })()}
-                            {(() => {
                               // In 'current' mode, show the last recorded value+date if it was before today
                               if (viewMode !== 'current') return null;
                               const primaryMetric = meta.metricNames?.[0];
@@ -1800,54 +1823,70 @@ export default function App() {
                                 </p>
                               );
                             })()}
-                            {(() => {
-                              const display = resolveMetricGoalDisplay(meta.cardName);
-                              if (display.mode === 'none') return null;
-                              if (display.mode === 'multi-program') {
-                                return (
-                                  <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
-                                    Multiple goals ({display.programNames.join(', ')})
-                                  </div>
-                                );
-                              }
-                              const { goal, prog } = display;
-                              if (!prog) return null;
-                              const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
-                              const isLIBc = goal.direction === 'lower_is_better';
-                              const hasEP = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
-                              let pct = (prog.pct ?? 0) * 100;
-                              if (hasEP && prog.current != null) {
-                                const range = isLIBc ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
-                                if (range !== 0) {
-                                  const moved = isLIBc ? (goal.startingValue - prog.current) : (prog.current - goal.startingValue);
-                                  pct = Math.min(100, Math.max(0, (moved / range) * 100));
-                                }
-                              }
-                              const barColor = isLBC
-                                ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
-                                : hasEP ? (pct >= 100 ? '#10b981' : '#f59e0b')
-                                : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
-                              return (
-                                <div style={{ marginTop: 6, width: '80%', margin: '6px auto 0' }}>
-                                  <div style={{ width: '100%', height: 3, background: '#e5e7eb', borderRadius: 2, overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
-                                  </div>
-                                  <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>
-                                    {(() => {
-                                      const lbl = goalProgressLabel(goal.goalType, goal.direction, prog, v => `${v}${metricConfig[meta.cardName]?.uom ? '\u2009' + metricConfig[meta.cardName].uom : ''}`);
-                                      return lbl ?? `${Math.round(pct)}%`;
-                                    })()}
-                                    {display.mode === 'single-program' && (
-                                      <span style={{ fontWeight: 400, color: '#9ca3af' }}> · {display.programName}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })()}
                           </>
                         ) : (
                           <p className="card-updated">No data yet</p>
                         )}
+                        {(() => {
+                          // Streak is a present-tense motivator — only meaningful on today or current view
+                          const isCurrentDay = viewMode === 'current' || toKey(selectedDate) === toKey(new Date());
+                          if (!isCurrentDay) return null;
+                          const primaryMetric = meta.metricNames?.[0];
+                          const cfg = primaryMetric ? metricConfig[primaryMetric] : null;
+                          const daily  = cfg?.currentDailyStreak  ?? 0;
+                          const weekly = cfg?.currentWeeklyStreak ?? 0;
+                          if (daily >= 2) {
+                            return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {daily} day streak</p>;
+                          }
+                          if (weekly >= 2) {
+                            return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {weekly} week streak</p>;
+                          }
+                          return null;
+                        })()}
+                        {(() => {
+                          const display = resolveMetricGoalDisplay(meta.cardName);
+                          if (display.mode === 'none') return null;
+                          if (display.mode === 'multi-program') {
+                            return (
+                              <div style={{ marginTop: 6, fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
+                                Multiple goals ({display.programNames.join(', ')})
+                              </div>
+                            );
+                          }
+                          const { goal, prog } = display;
+                          if (!prog) return null;
+                          const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
+                          const isLIBc = goal.direction === 'lower_is_better';
+                          const hasEP = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
+                          let pct = (prog.pct ?? 0) * 100;
+                          if (hasEP && prog.current != null) {
+                            const range = isLIBc ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
+                            if (range !== 0) {
+                              const moved = isLIBc ? (goal.startingValue - prog.current) : (prog.current - goal.startingValue);
+                              pct = Math.min(100, Math.max(0, (moved / range) * 100));
+                            }
+                          }
+                          const barColor = isLBC
+                            ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
+                            : hasEP ? (pct >= 100 ? '#10b981' : '#f59e0b')
+                            : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
+                          return (
+                            <div style={{ marginTop: 6, width: '80%', margin: '6px auto 0' }}>
+                              <div style={{ width: '100%', height: 3, background: '#e5e7eb', borderRadius: 2, overflow: 'hidden' }}>
+                                <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
+                              </div>
+                              <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>
+                                {(() => {
+                                  const lbl = goalProgressLabel(goal.goalType, goal.direction, prog, v => `${v}${metricConfig[meta.cardName]?.uom ? '\u2009' + metricConfig[meta.cardName].uom : ''}`);
+                                  return lbl ?? `${Math.round(pct)}%`;
+                                })()}
+                                {display.mode === 'single-program' && (
+                                  <span style={{ fontWeight: 400, color: '#9ca3af' }}> · {display.programName}</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </CardContent>
                   </Card>
@@ -1991,7 +2030,7 @@ export default function App() {
               return (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 13, color: '#6b7280' }}>
                   <span style={{ fontWeight: 600, color: '#374151' }}>Multiple goals</span>
-                  {' '}({display.programNames.join(', ')}) — open My Programs for details
+                  {' '}({display.programNames.join(', ')}) — open My Journey for details
                 </div>
               );
             }
@@ -2734,6 +2773,31 @@ export default function App() {
                 {/* Numeric options */}
                 {(open.tempDef?.value_type ?? 'numeric') === 'numeric' && (
                   <div style={{ display: 'grid', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tracking Style</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {[
+                          { val: null,         label: 'Flexible',    hint: 'No strong convention' },
+                          { val: 'standalone', label: 'Standalone',  hint: 'Each reading is independent (weight, heart rate)' },
+                          { val: 'cumulative', label: 'Cumulative',  hint: 'Entries add up toward a total (steps, miles)' },
+                        ].map(({ val, label, hint }) => {
+                          const isSelected = (open.tempDef?.tracking_flavor ?? null) === val;
+                          return (
+                            <button key={String(val)} type="button" title={hint}
+                              style={{
+                                flex: 1, padding: '6px 10px', border: '2px solid', borderRadius: 8,
+                                cursor: 'pointer', fontSize: 12, fontWeight: isSelected ? 600 : 400,
+                                borderColor: isSelected ? '#6366f1' : '#e5e7eb',
+                                background:  isSelected ? '#eef2ff' : 'white',
+                                color:       isSelected ? '#4f46e5' : '#374151',
+                                transition: 'all 0.15s',
+                              }}
+                              onClick={() => setOpen({ ...open, tempDef: { ...open.tempDef, tracking_flavor: val } })}
+                            >{label}</button>
+                          );
+                        })}
+                      </div>
+                    </div>
                     <fieldset className="notched-field">
                       <legend className="notched-label">Unit of Measure</legend>
                       <input type="text"
@@ -3356,83 +3420,27 @@ export default function App() {
 
         {/* Goal Wizard */}
         {open?.type === 'goal-wizard' && (
-          <DialogContent className="narrow-dialog">
+          <DialogContent className="goal-wizard-dialog">
             <DialogHeader>
               <DialogTitle>
                 {open.editGoalId ? 'Edit Goal' : 'Set a Goal'}{open.metricTitle ? ` — ${open.metricTitle}` : ''}
               </DialogTitle>
             </DialogHeader>
 
-            {/* ── Screen 1: Template picker ── */}
-            {open.screen === 'templates' && (() => {
-              const templates = METRIC_GOAL_TEMPLATES[open.metricId] ?? [];
-              return (
-                <>
-                  <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
-                    {templates.map(tpl => (
-                      <button
-                        key={tpl.templateId}
-                        onClick={() => {
-                          const todayIso = new Date().toISOString().split('T')[0];
-                          const d = {
-                            ...GOAL_DEFAULTS,
-                            metricId: open.metricId,
-                            name: tpl.name,
-                            goalType: tpl.goalType,
-                            period: tpl.period,
-                            direction: tpl.direction,
-                            aggregation: tpl.aggregation,
-                            targetValue: tpl.suggestedTarget ?? null,
-                            targetMin: tpl.suggestedMin ?? null,
-                            targetMax: tpl.suggestedMax ?? null,
-                            streakTarget: tpl.suggestedStreak ?? null,
-                            startDate: todayIso,
-                          };
-                          setOpen({ ...open, screen: 'configure', template: tpl, draft: d });
-                        }}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                          padding: '12px 14px', border: '1px solid #e5e7eb', borderRadius: 8,
-                          background: 'white', cursor: 'pointer', textAlign: 'left', width: '100%',
-                        }}
-                        onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
-                        onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
-                      >
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{tpl.name}</div>
-                        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                          {tpl.period.replace('_', ' ')} · {tpl.goalType.replace(/_/g, ' ')}
-                        </div>
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => {
-                        const todayIso = new Date().toISOString().split('T')[0];
-                        setOpen({ ...open, screen: 'configure', template: null, draft: { ...GOAL_DEFAULTS, metricId: open.metricId, name: '', startDate: todayIso } });
-                      }}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '12px 14px', border: '1px dashed #d1d5db', borderRadius: 8,
-                        background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%',
-                      }}
-                    >
-                      <Plus size={16} style={{ color: '#6b7280', flexShrink: 0 }} />
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 14, color: '#374151' }}>Custom Goal</div>
-                        <div style={{ fontSize: 12, color: '#9ca3af' }}>Set your own parameters</div>
-                      </div>
-                    </button>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
-                  </DialogFooter>
-                </>
-              );
-            })()}
+            {/* ── Wizard (new goals) ── */}
+            {open.screen === 'wizard' && (
+              <GoalWizard
+                open={open}
+                setOpen={setOpen}
+                onSave={handleSaveGoal}
+                metricConfig={metricConfig}
+                templates={METRIC_GOAL_TEMPLATES[open.metricId] ?? []}
+              />
+            )}
 
-            {/* ── Screen 2: Configure + Period (combined) ── */}
+            {/* ── Screen: Configure (edits only) ── */}
             {open.screen === 'configure' && (() => {
               const draft = open.draft ?? {};
-              const templates = METRIC_GOAL_TEMPLATES[open.metricId] ?? [];
               const GOAL_TYPE_OPTIONS = [
                 { value: 'target_value', label: 'Target Value' },
                 { value: 'cumulative',   label: 'Cumulative' },
@@ -3578,17 +3586,9 @@ export default function App() {
                     {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
                   </div>
                   <DialogFooter>
-                    <Button variant="secondary" onClick={() => {
-                      if (templates.length > 0 && !open.editGoalId) {
-                        setOpen({ ...open, screen: 'templates', saveError: undefined });
-                      } else {
-                        setOpen(null);
-                      }
-                    }}>
-                      {templates.length > 0 && !open.editGoalId ? 'Back' : 'Cancel'}
-                    </Button>
+                    <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
                     <Button onClick={handleSaveGoal} disabled={open.isSaving}>
-                      {open.isSaving ? 'Saving…' : open.editGoalId ? 'Update Goal' : 'Save Goal'}
+                      {open.isSaving ? 'Updating…' : 'Update Goal'}
                     </Button>
                   </DialogFooter>
                 </>
