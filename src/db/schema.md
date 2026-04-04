@@ -1,6 +1,6 @@
 # TobbiHealth — Database Schema & DynamoDB Design
 
-**Last updated:** March 2026  
+**Last updated:** April 2026  
 **Current storage:** `localStorage` (frontend-only prototype)  
 **Target storage:** AWS DynamoDB (single-table design)
 
@@ -136,6 +136,7 @@ Describes a trackable metric. System metrics have `createdBy = "SYSTEM"` and `is
 | `createdBy`          | string                                       | ✅        | `"SYSTEM"` or userId |
 | `updatedAt`          | string (ISO-8601)                            | ✅        | |
 | `trackingFlavor`     | `"standalone"` \| `"cumulative"` \| `null`    | ❌        | UI hint for goal creation. `standalone` = each entry is individually significant (weight, HR); `cumulative` = entries aggregate toward a total (steps, meals cooked). `null` = no strong convention. |
+| `tracking`           | `"cumulative"` \| `"trending"` \| `"spot"` \| `null` | ❌ | Goal status phrasing hint. `cumulative` = entries aggregate toward a total (e.g. medications taken); `trending` = a single value that moves toward a target over time (e.g. weight); `spot` = each reading is independent (e.g. heart rate, pain score). `null` = defaults to trending behavior. |
 | `defaultAggregation` | `"sum"` \| `"count"` \| `"avg"` \| `"max"` \| `"min"` \| `null` | ❌ | UI hint: pre-selects the aggregation method in the Goal creation dialog. Does not restrict user choice. |
 | `goalTemplates`      | `GoalTemplate[]`                             | ❌        | Ordered list of suggested goal templates shown in the Goal creation wizard. Empty array = no templates. System metrics ship with pre-built templates seeded here. |
 | `sliderEnabled`      | boolean                                      | ❌        | numeric metrics only |
@@ -389,13 +390,14 @@ Weight reading at 2025-11-01 07:31 UTC:
   "uom":         "lbs",
   "isPublic":    true,
   "createdBy":   "SYSTEM",
+  "tracking":    "trending",
   "updatedAt":   "2026-03-23T00:00:00.000Z"
 }
 ```
 
 > `isPublic: true` for seed/system metrics; `false` for user-created (personal) metrics.  
 > `createdBy: "SYSTEM"` for seed metrics; `userId` for user-created ones.  
-> `trackingFlavor` and `defaultAggregation` are UI hints only — they pre-populate the Goal creation dialog but do not constrain what the user can configure.  
+> `trackingFlavor`, `tracking`, and `defaultAggregation` are UI hints only — they pre-populate the Goal creation dialog and drive goal status phrasing but do not constrain what the user can configure.  
 > `goalTemplates` is a DynamoDB List attribute containing GoalTemplate maps; see §2.5 for the GoalTemplate shape. System metrics ship with pre-built templates seeded here (e.g. weight → "Reach target weight", "Stay within weight range").
 
 ---

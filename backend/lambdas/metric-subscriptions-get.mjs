@@ -77,12 +77,23 @@ export const handler = async (event) => {
         const def      = defsByMetricId[metricId];
         if (!def) return null;
         const { PK, SK, itemType, ...defFields } = def;
+        const dStatus = dailyStreakStatus(sub.lastEntryDate);
+        const wStatus = weeklyStreakStatus(sub.lastEntryWeek);
+        const liveDaily  = dStatus === 'active' || dStatus === 'jeopardy';
+        const liveWeekly = wStatus === 'active' || wStatus === 'jeopardy';
         return {
           ...defFields,
           metricId,
           subscribedAt:        sub.subscribedAt,
-          currentDailyStreak:  sub.currentDailyStreak  ?? 0,
-          currentWeeklyStreak: sub.currentWeeklyStreak ?? 0,
+          currentDailyStreak:  liveDaily  ? (sub.currentDailyStreak  ?? 0) : 0,
+          currentWeeklyStreak: liveWeekly ? (sub.currentWeeklyStreak ?? 0) : 0,
+          lastDailyStreak:     sub.currentDailyStreak  ?? 0,
+          lastWeeklyStreak:    sub.currentWeeklyStreak ?? 0,
+          maxDailyStreak:      sub.maxDailyStreak      ?? 0,
+          maxWeeklyStreak:     sub.maxWeeklyStreak     ?? 0,
+          lastEntryDate:       sub.lastEntryDate       ?? null,
+          dailyStreakStatus:   dStatus,
+          weeklyStreakStatus:  wStatus,
         };
       })
       .filter(Boolean);
@@ -94,6 +105,51 @@ export const handler = async (event) => {
     return reply(500, { error: "Internal server error" }, corsHeaders);
   }
 };
+
+// ── Streak status helpers ────────────────────────────────────────────────────
+// Each returns: 'active' | 'jeopardy' | 'recently_ended' | 'dead'
+//
+//  active         — logged today (daily) / this week (weekly)  → streak is safe
+//  jeopardy       — logged yesterday / last week               → streak dies if nothing logged today/this week
+//  recently_ended — logged 2 days ago / 2 weeks ago            → streak just ended; prompt to restart
+//  dead           — no entry, or older than the above windows
+
+function toISODate(ts) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function toISOWeek(ts) {
+  const d = new Date(ts);
+  const dayOfWeek = d.getUTCDay() || 7; // Mon=1 … Sun=7
+  d.setUTCDate(d.getUTCDate() + 4 - dayOfWeek);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function dailyStreakStatus(lastEntryDate) {
+  if (!lastEntryDate) return 'dead';
+  const now          = Date.now();
+  const today        = toISODate(now);
+  const yesterday    = toISODate(now - 86_400_000);
+  const twoDaysAgo   = toISODate(now - 2 * 86_400_000);
+  if (lastEntryDate === today)      return 'active';
+  if (lastEntryDate === yesterday)  return 'jeopardy';
+  if (lastEntryDate === twoDaysAgo) return 'recently_ended';
+  return 'dead';
+}
+
+function weeklyStreakStatus(lastEntryWeek) {
+  if (!lastEntryWeek) return 'dead';
+  const now        = Date.now();
+  const thisWeek   = toISOWeek(now);
+  const lastWeek   = toISOWeek(now - 7 * 86_400_000);
+  const twoWeeksAgo = toISOWeek(now - 14 * 86_400_000);
+  if (lastEntryWeek === thisWeek)    return 'active';
+  if (lastEntryWeek === lastWeek)    return 'jeopardy';
+  if (lastEntryWeek === twoWeeksAgo) return 'recently_ended';
+  return 'dead';
+}
 
 async function authenticate(event) {
   try {

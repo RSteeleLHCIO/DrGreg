@@ -146,18 +146,18 @@ export const FEATURE_FLAGS_DEFAULTS = {
 
 /** @type {{ [metricName: string]: MetricConfig }} */
 export const METRIC_CONFIG = {
-  weight:      { title: "Weight",         kind: "singleValue", uom: "lbs" },
-  heart:       { title: "Heart Rate",     kind: "singleValue", uom: "bpm",   prompt: "What is your Heart Rate (beats per minute)?" },
-  glucose:     { title: "Blood Glucose",  kind: "singleValue", uom: "mg/dL", prompt: "What is your Blood Glucose (sugar) level?" },
-  systolic:    { title: "BP – Systolic",  kind: "singleValue", uom: "mmHg" },
-  diastolic:   { title: "BP – Diastolic", kind: "singleValue", uom: "mmHg" },
-  temperature: { title: "Temperature",    kind: "singleValue", uom: "°F" },
-  pain:        { title: "Pain",           kind: "slider",      uom: "",     prompt: "How bad is your pain today?" },
-  tired:       { title: "Tiredness",      kind: "slider",      uom: "",     prompt: "How tired do you feel today?" },
-  headache:    { title: "Headache",       kind: "slider",      uom: "",     prompt: "How bad is your headache today?" },
-  back:        { title: "Back Pain",      kind: "slider",      uom: "",     prompt: "How bad is your back pain today?" },
-  tylenol:     { title: "Rx – Tylenol",   kind: "switch",      uom: "",     prompt: "Did you take Tylenol within the last 4 hours?" },
-  losartan:    { title: "Rx – Losartan",  kind: "switch",      uom: "",     prompt: "Did you take Losartan today?" },
+  weight:      { title: "Weight",         kind: "singleValue", uom: "lbs",   tracking: "trending" },
+  heart:       { title: "Heart Rate",     kind: "singleValue", uom: "bpm",   tracking: "spot",     prompt: "What is your Heart Rate (beats per minute)?" },
+  glucose:     { title: "Blood Glucose",  kind: "singleValue", uom: "mg/dL", tracking: "spot",     prompt: "What is your Blood Glucose (sugar) level?" },
+  systolic:    { title: "BP – Systolic",  kind: "singleValue", uom: "mmHg",  tracking: "spot" },
+  diastolic:   { title: "BP – Diastolic", kind: "singleValue", uom: "mmHg",  tracking: "spot" },
+  temperature: { title: "Temperature",    kind: "singleValue", uom: "°F",    tracking: "spot" },
+  pain:        { title: "Pain",           kind: "slider",      uom: "",      tracking: "spot",     prompt: "How bad is your pain today?" },
+  tired:       { title: "Tiredness",      kind: "slider",      uom: "",      tracking: "spot",     prompt: "How tired do you feel today?" },
+  headache:    { title: "Headache",       kind: "slider",      uom: "",      tracking: "spot",     prompt: "How bad is your headache today?" },
+  back:        { title: "Back Pain",      kind: "slider",      uom: "",      tracking: "spot",     prompt: "How bad is your back pain today?" },
+  tylenol:     { title: "Rx – Tylenol",   kind: "switch",      uom: "",      tracking: "cumulative", prompt: "Did you take Tylenol within the last 4 hours?" },
+  losartan:    { title: "Rx – Losartan",  kind: "switch",      uom: "",      tracking: "cumulative", prompt: "Did you take Losartan today?" },
 };
 
 // ─── Metric definition (the catalogue entry for a metric) ────────────────────
@@ -230,6 +230,7 @@ export const METRIC_DEFINITION_DEFAULTS = {
   createdBy:          "",
   updatedAt:          "",
   trackingFlavor:     null,
+  tracking:           null,   // 'cumulative' | 'trending' | 'spot' | null — status display hint
   defaultAggregation: null,
   goalTemplates:      [],
 };
@@ -354,6 +355,12 @@ export const GOAL_DEFAULTS = {
   endDate:       null,
   createdAt:     "",
   updatedAt:     "",
+  // ── Chain goal fields ──────────────────────────────────────────────────────
+  chainId:       null,   // UUID shared across all steps in a chain; null = standalone goal
+  chainPosition: null,   // 0-indexed position in the chain; null = standalone
+  triggerType:   null,   // 'date' | 'achievement' | null (null = always starts active)
+  triggerDate:   null,   // ISO date string; when triggerType === 'date'
+  triggerStreak: null,   // N consecutive on-target periods; when triggerType === 'achievement'
 };
 
 // ─── Metric subscription (user ↔ metric join record) ─────────────────────────

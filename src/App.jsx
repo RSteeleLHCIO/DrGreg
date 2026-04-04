@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "./components/ui/card";
 import { Button } from "./components/ui/button";
-import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, Settings, Plus, Clock, Thermometer, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut, MoreVertical, Flag, Trash2, CheckCircle2, Sun, ChevronLeft } from "lucide-react";
+import { Activity, Heart, Droplet, Gauge, CalendarDays, Moon, Brain, Bone, Edit, Pill, Settings, Plus, Clock, Thermometer, Download, Upload, User, Link, Users, Target, Home, Camera, LogOut, MoreVertical, Flag, Trash2, CheckCircle2, Sun, ChevronLeft, ChevronRight, Link2 } from "lucide-react";
 
 import {
   Dialog,
@@ -18,7 +18,8 @@ import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
 import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS, PROGRAM_ITEM_DEFAULTS } from './db/schema';
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
-import { GoalWizard } from "./components/goal-wizard";
+import { GoalWizard, bumpFollowOnGoal } from "./components/goal-wizard";
+import { GoalStatusBlock } from "./components/goal-status-block";
 
 // Icon map for custom metric definitions (icon name → component)
 const METRIC_ICONS = { Activity, Heart, Droplet, Gauge, Moon, Brain, Bone, Thermometer, Pill, Target, Clock, User };
@@ -40,18 +41,15 @@ function toTitleCase(str) {
   });
 }
 
-// Returns a human-friendly progress label for any goal type.
-// fmtV(v) should return "v uom" (already formatted).
+// Used by programs panel and metric history view progress indicators.
 function goalProgressLabel(goalType, direction, prog, fmtV) {
   if (!prog) return null;
-  const { current, target, targetMin, targetMax, pct, isOnTrack, entryCount, inRangeCount } = prog;
-
+  const { current, target, targetMin, targetMax } = prog;
   if (goalType === 'target_value') {
     if (current == null) return null;
     const diff = Math.abs(+current - +target);
     return diff === 0 ? 'Goal reached!' : `${fmtV(diff)} to go`;
   }
-
   if (goalType === 'cumulative') {
     if (current == null || target == null) return null;
     if (direction === 'lower_is_better') {
@@ -61,32 +59,21 @@ function goalProgressLabel(goalType, direction, prog, fmtV) {
     const rem = +(target - current).toFixed(4);
     return rem <= 0 ? 'Goal met!' : `${fmtV(rem)} to go`;
   }
-
   if (goalType === 'streak') {
     if (current == null || target == null) return null;
     const rem = target - current;
-    return rem <= 0 ? 'Streak goal reached!' : `${rem} more day${rem !== 1 ? 's' : ''}`;
+    return rem <= 0 ? 'Streak goal reached!' : `${rem} more period${rem !== 1 ? 's' : ''}`;
   }
-
   if (goalType === 'range') {
     if (current == null || targetMin == null || targetMax == null) return null;
-    if (current >= targetMin && current <= targetMax) return 'In range — keep it up!';
-    const rangeWidth = targetMax - targetMin;
-    const soCloseThreshold = rangeWidth * 0.15;
-    if (current > targetMax) {
-      const over = current - targetMax;
-      return over <= soCloseThreshold ? `Just ${fmtV(over)} above — so close!` : `${fmtV(over)} above range`;
-    }
-    const under = targetMin - current;
-    return under <= soCloseThreshold ? `Just ${fmtV(under)} below — so close!` : `${fmtV(under)} below range`;
+    if (current >= targetMin && current <= targetMax) return 'In range';
+    return current > targetMax ? `Above range` : `Below range`;
   }
-
   if (goalType === 'best_of') {
     if (current == null || target == null) return null;
     const diff = direction === 'lower_is_better' ? current - target : target - current;
     return diff <= 0 ? 'Personal best!' : `${fmtV(diff)} to beat your best`;
   }
-
   return null;
 }
 
@@ -200,6 +187,7 @@ export default function App() {
         setGoals(goalList);
         const active = goalList.filter(g => g.isActive);
         if (active.length > 0) fetchGoalProgress(token, active);
+        resolveChainActivations(goalList, token);
       }
     } catch {}
   }
@@ -272,9 +260,16 @@ export default function App() {
           ...(kind === 'slider' ? { logicalMin: def.logicalMin ?? 0, logicalMax: def.logicalMax ?? 10 } : {}),
           ...(kind === 'switch' ? { falseTag: def.falseTag || 'No', trueTag: def.trueTag || 'Yes' } : {}),
           trackingFlavor:      def.trackingFlavor      ?? null,
+          tracking:            def.tracking            ?? null,
           defaultAggregation:  def.defaultAggregation  ?? null,
           currentDailyStreak:  def.currentDailyStreak  ?? 0,
           currentWeeklyStreak: def.currentWeeklyStreak ?? 0,
+          lastDailyStreak:     def.lastDailyStreak     ?? 0,
+          lastWeeklyStreak:    def.lastWeeklyStreak    ?? 0,
+          maxDailyStreak:      def.maxDailyStreak      ?? 0,
+          maxWeeklyStreak:     def.maxWeeklyStreak     ?? 0,
+          dailyStreakStatus:   def.dailyStreakStatus   ?? 'dead',
+          weeklyStreakStatus:  def.weeklyStreakStatus  ?? 'dead',
         };
         cardUpdates.push({
           cardName: def.metricId,
@@ -475,9 +470,16 @@ export default function App() {
               ...existing,
               currentDailyStreak:  currentDailyStreak  ?? existing.currentDailyStreak,
               currentWeeklyStreak: currentWeeklyStreak ?? existing.currentWeeklyStreak,
+              lastDailyStreak:     currentDailyStreak  ?? existing.lastDailyStreak,
+              lastWeeklyStreak:    currentWeeklyStreak ?? existing.lastWeeklyStreak,
+              dailyStreakStatus:   'active',
+              weeklyStreakStatus:  'active',
             },
           };
         });
+        // Re-fetch progress for every active goal on this metric
+        const affected = goals.filter(g => g.metricId === newData.metric && g.isActive !== false);
+        if (affected.length > 0) fetchGoalProgress(authToken, affected);
       }).catch(() => {});
     }
 
@@ -605,22 +607,18 @@ export default function App() {
   }
 
   function openGoalWizard(metricId, specificGoalId) {
+    const todayIso = new Date().toISOString().split('T')[0];
     const metricTitle = metricConfig[metricId]?.title || toSentenceCase(metricId);
-    const templates = METRIC_GOAL_TEMPLATES[metricId] ?? [];
     const existingGoal = specificGoalId
       ? goals.find(g => g.goalId === specificGoalId)
       : goals.find(g => g.metricId === metricId && g.isActive);
-    const todayIso = new Date().toISOString().split('T')[0];
+    setCardMenuOpen(null);
     if (existingGoal) {
-      setOpen({
-        type: 'goal-wizard',
-        metricId,
-        metricTitle,
-        screen: 'configure',
-        template: null,
-        draft: { ...existingGoal },
-        editGoalId: existingGoal.goalId,
-      });
+      if (existingGoal.chainId) {
+        openChainOverview(existingGoal.chainId);
+      } else {
+        openGoalEditAsWizard(existingGoal);
+      }
     } else {
       setOpen({
         type: 'goal-wizard',
@@ -633,11 +631,11 @@ export default function App() {
         editGoalId: undefined,
       });
     }
-    setCardMenuOpen(null);
   }
 
-  async function handleSaveGoal() {
-    const draft = open?.draft;
+  async function handleSaveGoal(chainOverrides = null, chainContinue = null) {
+    const rawDraft = open?.draft ?? {};
+    const draft = chainOverrides ? { ...rawDraft, ...chainOverrides } : rawDraft;
     if (!draft?.name?.trim()) {
       setOpen({ ...open, saveError: 'Please enter a goal name.' });
       return;
@@ -661,7 +659,7 @@ export default function App() {
     setOpen({ ...open, isSaving: true, saveError: undefined });
     try {
       const body = { ...draft };
-      if (open.editGoalId) body.goalId = open.editGoalId;
+      if (open.editGoalId && !chainContinue) body.goalId = open.editGoalId;
       const res = await fetch(`${API}/goal`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -675,7 +673,37 @@ export default function App() {
       const { goal } = await res.json();
       setGoals(prev => [...prev.filter(g => g.goalId !== goal.goalId), goal]);
       fetchGoalProgress(authToken, [goal]);
-      setOpen(null);
+      if (chainContinue) {
+        const todayIso = new Date().toISOString().split('T')[0];
+        const baseDraft = chainContinue.bumpedDraft ?? {
+          ...GOAL_DEFAULTS,
+          metricId: open.metricId,
+          name:     '',
+          startDate: todayIso,
+        };
+        setOpen({
+          type:        'goal-wizard',
+          metricId:    open.metricId,
+          metricTitle: open.metricTitle,
+          screen:      'wizard',
+          wizStep:     'confirm',
+          wiz:         { nameIsCustom: true },
+          draft: {
+            ...baseDraft,
+            metricId:      open.metricId,
+            startDate:     baseDraft.startDate ?? todayIso,
+            chainId:       chainContinue.chainId,
+            chainPosition: chainContinue.nextPosition,
+            triggerType:   chainContinue.triggerType,
+            triggerDate:   chainContinue.triggerDate    ?? null,
+            triggerStreak: chainContinue.triggerStreak  ?? null,
+            isActive:      false,
+          },
+          editGoalId: undefined,
+        });
+      } else {
+        setOpen(null);
+      }
     } catch {
       setOpen({ ...open, isSaving: false, saveError: 'Network error. Please try again.' });
     }
@@ -694,6 +722,109 @@ export default function App() {
         setGoalProgress(prev => { const n = { ...prev }; delete n[goalId]; return n; });
       }
     } catch {}
+  }
+
+  // Delete a chain step and all steps after it (same chainId, chainPosition >=)
+  async function handleDeleteGoalChain(goal) {
+    const chainSteps = goal.chainId
+      ? goals.filter(g => g.chainId === goal.chainId && g.chainPosition >= goal.chainPosition)
+        .sort((a, b) => a.chainPosition - b.chainPosition)
+      : [goal];
+    const count = chainSteps.length;
+    const msg = count > 1
+      ? `Delete "${goal.name}" and the ${count - 1} follow-up goal${count > 2 ? 's' : ''} after it?`
+      : `Delete "${goal.name}"?`;
+    if (!window.confirm(msg)) return;
+    await Promise.allSettled(chainSteps.map(async step => {
+      try {
+        const res = await fetch(`${API}/goal`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ goalId: step.goalId }),
+        });
+        if (res.ok) {
+          setGoals(prev => prev.filter(g => g.goalId !== step.goalId));
+          setGoalProgress(prev => { const n = { ...prev }; delete n[step.goalId]; return n; });
+        }
+      } catch {}
+    }));
+    setOpen(null);
+  }
+
+  function openChainOverview(chainId) {
+    const steps = goals.filter(g => g.chainId === chainId)
+      .sort((a, b) => a.chainPosition - b.chainPosition);
+    if (!steps.length) return;
+    const firstStep = steps[0];
+    const metricId    = firstStep.metricId;
+    const metricTitle = metricConfig[metricId]?.title || toSentenceCase(metricId);
+    setOpen({ type: 'goal-wizard', screen: 'chain-overview', metricId, metricTitle, chainId, chainSteps: steps });
+  }
+
+  function openGoalEditAsWizard(goal) {
+    const metricId    = goal.metricId;
+    const metricTitle = metricConfig[metricId]?.title || toSentenceCase(metricId);
+    setOpen({
+      type:        'goal-wizard',
+      metricId,
+      metricTitle,
+      screen:      'wizard',
+      wizStep:     'confirm',
+      wiz:         { nameIsCustom: true },
+      draft:       { ...goal },
+      editGoalId:  goal.goalId,
+    });
+  }
+
+  // ── Chain goal activation ──────────────────────────────────────────────────
+  // Scans all goals that belong to a chain and activates the highest step whose
+  // trigger condition is satisfied, deactivating all other steps in that chain.
+  // Called after goals are loaded and whenever entries are recorded.
+  async function resolveChainActivations(goalList, token) {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Group by chainId
+    const chains = {};
+    for (const g of goalList) {
+      if (!g.chainId) continue;
+      if (!chains[g.chainId]) chains[g.chainId] = [];
+      chains[g.chainId].push(g);
+    }
+
+    const updates = [];
+    for (const steps of Object.values(chains)) {
+      // Scan highest chainPosition → lowest to find the first satisfied trigger
+      const sorted = [...steps].sort((a, b) => b.chainPosition - a.chainPosition);
+      let targetPosition = 0; // step 0 activates by default
+      for (const step of sorted) {
+        if (step.chainPosition === 0) continue;
+        if (step.triggerType === 'date' && step.triggerDate && step.triggerDate <= today) {
+          targetPosition = step.chainPosition;
+          break;
+        }
+        // triggerType === 'achievement': requires consecutive-period tracking — not yet implemented
+      }
+      for (const step of steps) {
+        const shouldBeActive = step.chainPosition === targetPosition;
+        if (step.isActive !== shouldBeActive) updates.push({ ...step, isActive: shouldBeActive });
+      }
+    }
+
+    if (updates.length === 0) return;
+
+    await Promise.allSettled(updates.map(async updatedGoal => {
+      try {
+        const res = await fetch(`${API}/goal`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(updatedGoal),
+        });
+        if (res.ok) {
+          const { goal: saved } = await res.json();
+          setGoals(prev => [...prev.filter(g => g.goalId !== saved.goalId), saved]);
+        }
+      } catch {}
+    }));
   }
 
   // ── Program wizard ─────────────────────────────────────────────────────────
@@ -1438,110 +1569,110 @@ export default function App() {
               <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#374151' }}>No goals yet</div>
               <div style={{ fontSize: 14 }}>Tap ··· on any metric card to set a goal.</div>
             </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 12 }}>
-              {goals.filter(g => g.isActive).map(goal => {
-                const prog = goalProgress[goal.goalId];
-                const metricTitle = metricConfig[goal.metricId]?.title || toSentenceCase(goal.metricId);
-                const pct = prog?.pct ?? null;
-                const isOnTrack = prog?.isOnTrack ?? null;
-                const uom = metricConfig[goal.metricId]?.uom ?? '';
-                const fmtV = v => v != null ? `${v}${uom ? '\u2009' + uom : ''}` : '—';
-                const barColor = isOnTrack === true ? '#10b981' : pct != null && pct >= 60 ? '#f59e0b' : '#ef4444';
-                const PERIOD_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling', all_time: 'All Time' };
-                const TYPE_LABELS = { target_value: 'Target', cumulative: 'Cumulative', range: 'Range', streak: 'Streak', best_of: 'Personal Best' };
-                return (
-                  <div key={goal.goalId} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 10, background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: 15 }}>{goal.name}</div>
-                        <div style={{ color: '#6b7280', fontSize: 12, marginTop: 2 }}>
-                          {metricTitle} · {TYPE_LABELS[goal.goalType] ?? goal.goalType} · {PERIOD_LABELS[goal.period] ?? goal.period}
+          ) : (() => {
+            // Separate standalone goals from chain goals; chains show as a single card
+            const activeGoals = goals.filter(g => g.isActive);
+            const seenChains = new Set();
+            const items = []; // { type: 'standalone'|'chain', goal?, chainId?, steps? }
+            for (const goal of activeGoals) {
+              if (!goal.chainId) {
+                items.push({ type: 'standalone', goal });
+              } else if (!seenChains.has(goal.chainId)) {
+                seenChains.add(goal.chainId);
+                const allSteps = goals.filter(g => g.chainId === goal.chainId)
+                  .sort((a, b) => a.chainPosition - b.chainPosition);
+                items.push({ type: 'chain', chainId: goal.chainId, steps: allSteps, activeGoal: goal });
+              }
+            }
+
+
+
+            return (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {items.map(item => {
+                  if (item.type === 'standalone') {
+                    const { goal } = item;
+                    const metricTitle = metricConfig[goal.metricId]?.title || toSentenceCase(goal.metricId);
+                    const PERIOD_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling', all_time: 'All Time' };
+                    const TYPE_LABELS   = { target_value: 'Target', cumulative: 'Cumulative', range: 'Range', streak: 'Streak', best_of: 'Personal Best' };
+                    return (
+                      <div key={goal.goalId} style={{ padding: 16, border: '1px solid #e5e7eb', borderRadius: 10, background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <div style={{ flex: 1, fontSize: 12, color: '#6b7280' }}>
+                            {metricTitle} · {TYPE_LABELS[goal.goalType] ?? goal.goalType} · {PERIOD_LABELS[goal.period] ?? goal.period}
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                            <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto' }} onClick={() => openGoalEditAsWizard(goal)}>
+                              <Edit size={14} />
+                            </Button>
+                            <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', color: '#ef4444' }} onClick={() => handleDeleteGoal(goal.goalId)}>
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
                         </div>
+                        <GoalStatusBlock
+                          goal={goal}
+                          prog={goalProgress[goal.goalId] ?? null}
+                          tracking={metricConfig[goal.metricId]?.tracking ?? null}
+                          uom={metricConfig[goal.metricId]?.uom ?? ''}
+                        />
                       </div>
-                      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto' }} onClick={() => openGoalWizard(goal.metricId, goal.goalId)}>
-                          <Edit size={14} />
-                        </Button>
-                        <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', color: '#ef4444' }} onClick={() => handleDeleteGoal(goal.goalId)}>
-                          <Trash2 size={14} />
+                    );
+                  }
+
+                  // Chain card
+                  const { chainId, steps, activeGoal } = item;
+                  const metricTitle = metricConfig[activeGoal.metricId]?.title || toSentenceCase(activeGoal.metricId);
+                  const futureCount = steps.filter(s => !s.isActive).length;
+                  return (
+                    <div key={chainId} style={{ border: '1px solid #c7d2fe', borderRadius: 10, background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                      {/* Chain header */}
+                      <div style={{ background: '#eef2ff', borderBottom: '1px solid #c7d2fe', padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          <Link2 size={12} />
+                          Goal Chain · {metricTitle} · {steps.length} steps{futureCount > 0 ? ` (${futureCount} upcoming)` : ''}
+                        </div>
+                        <Button variant="ghost" style={{ padding: '2px 8px', height: 'auto', fontSize: 12, color: '#4f46e5' }} onClick={() => openChainOverview(chainId)}>
+                          Manage <ChevronRight size={12} style={{ display: 'inline', verticalAlign: 'middle' }} />
                         </Button>
                       </div>
+                      {/* Active step */}
+                      <div style={{ padding: 16 }}>
+                        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>
+                          Step {(activeGoal.chainPosition ?? 0) + 1} of {steps.length} · Active now
+                        </div>
+                        <GoalStatusBlock
+                          goal={activeGoal}
+                          prog={goalProgress[activeGoal.goalId] ?? null}
+                          tracking={metricConfig[activeGoal.metricId]?.tracking ?? null}
+                          uom={metricConfig[activeGoal.metricId]?.uom ?? ''}
+                        />
+                      </div>
+                      {/* Upcoming steps preview */}
+                      {futureCount > 0 && (
+                        <div style={{ borderTop: '1px solid #e5e7eb', padding: '8px 14px' }}>
+                          {steps.filter(s => !s.isActive).map((step, i) => {
+                            const label = step.triggerType === 'date'
+                              ? `Starts ${new Date(step.triggerDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                              : step.triggerType === 'achievement'
+                              ? `Unlocks after ${step.triggerStreak} on-target period${step.triggerStreak > 1 ? 's' : ''}`
+                              : 'Upcoming';
+                            return (
+                              <div key={step.goalId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderTop: i > 0 ? '1px solid #f3f4f6' : undefined }}>
+                                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#c7d2fe', flexShrink: 0 }} />
+                                <div style={{ flex: 1, fontSize: 12, color: '#374151', fontWeight: 500 }}>{step.name}</div>
+                                <div style={{ fontSize: 11, color: '#9ca3af' }}>{label}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {pct !== null ? (
-                      (() => {
-                        const hasEndpoints = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
-                        const isLIB = goal.direction === 'lower_is_better';
-                        const current = prog?.current ?? null;
-
-                        // Recompute pct from start→target range when startingValue is available
-                        let displayPct = pct;
-                        if (hasEndpoints && current !== null) {
-                          const range = isLIB
-                            ? (goal.startingValue - goal.targetValue)
-                            : (goal.targetValue - goal.startingValue);
-                          if (range !== 0) {
-                            const moved = isLIB
-                              ? (goal.startingValue - current)
-                              : (current - goal.startingValue);
-                            displayPct = Math.min(100, Math.max(0, (moved / range) * 100));
-                          }
-                        }
-
-                        // Amber while in-progress, green when done — no red for target goals
-                        const displayColor = displayPct >= 100 ? '#10b981' : '#f59e0b';
-
-                        return hasEndpoints ? (
-                          <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11, marginBottom: 4 }}>
-                              <span style={{ color: '#9ca3af' }}>Start: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV(goal.startingValue)}</span></span>
-                              {current != null && <span style={{ color: '#374151', fontWeight: 600, fontSize: 12 }}>{fmtV(current)}</span>}
-                              <span style={{ color: '#9ca3af' }}>Goal: <span style={{ color: '#6b7280', fontWeight: 500 }}>{fmtV(goal.targetValue)}</span></span>
-                            </div>
-                            <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${displayPct}%`, height: '100%', background: displayColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: 11, marginTop: 3 }}>
-                              <span style={{ fontWeight: 600, color: displayColor }}>
-                                {isOnTrack === true && <CheckCircle2 size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
-                                {current != null
-                                  ? displayPct >= 100
-                                    ? `Goal reached!`
-                                    : `${fmtV(Math.abs(+current - goal.targetValue))} to go`
-                                  : `${Math.round(displayPct)}%`}
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                              <span style={{ color: '#6b7280' }}>{prog?.periodLabel ?? ''}</span>
-                            </div>
-                            <div style={{ width: '100%', height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                              <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.4s ease' }} />
-                            </div>
-                            {(() => {
-                              const label = goalProgressLabel(goal.goalType, goal.direction, prog, fmtV);
-                              return label ? (
-                                <div style={{ textAlign: 'right', fontSize: 11, marginTop: 3 }}>
-                                  <span style={{ fontWeight: 600, color: barColor }}>
-                                    {isOnTrack === true && <CheckCircle2 size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />}
-                                    {label}
-                                  </span>
-                                </div>
-                              ) : null;
-                            })()}
-                          </>
-                        );
-                      })()
-                    ) : (
-                      <div style={{ fontSize: 12, color: '#9ca3af' }}>No progress data yet</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       ) : viewMode !== 'metric-history' ? (
         <div className="mydata-cards-grid">
@@ -1828,19 +1959,53 @@ export default function App() {
                           <p className="card-updated">No data yet</p>
                         )}
                         {(() => {
-                          // Streak is a present-tense motivator — only meaningful on today or current view
+                          // Streak nudge — only meaningful on today / current view
                           const isCurrentDay = viewMode === 'current' || toKey(selectedDate) === toKey(new Date());
                           if (!isCurrentDay) return null;
                           const primaryMetric = meta.metricNames?.[0];
                           const cfg = primaryMetric ? metricConfig[primaryMetric] : null;
-                          const daily  = cfg?.currentDailyStreak  ?? 0;
-                          const weekly = cfg?.currentWeeklyStreak ?? 0;
-                          if (daily >= 2) {
+                          if (!cfg) return null;
+                          const daily      = cfg.currentDailyStreak  ?? 0;
+                          const weekly     = cfg.currentWeeklyStreak ?? 0;
+                          const dStatus    = cfg.dailyStreakStatus    ?? 'dead';
+                          const wStatus    = cfg.weeklyStreakStatus   ?? 'dead';
+                          const lastDaily  = cfg.lastDailyStreak     ?? 0;
+                          const lastWeekly = cfg.lastWeeklyStreak    ?? 0;
+
+                          // Active streak
+                          if (dStatus === 'active' && daily >= 2)
                             return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {daily} day streak</p>;
-                          }
-                          if (weekly >= 2) {
+                          if (wStatus === 'active' && weekly >= 2)
                             return <p style={{ fontSize: '0.75em', color: '#f59e0b', marginTop: 2, fontWeight: 600 }}>🔥 {weekly} week streak</p>;
-                          }
+
+                          // Jeopardy — streak will die if nothing logged today
+                          if (dStatus === 'jeopardy' && daily >= 2)
+                            return (
+                              <p style={{ fontSize: '0.72em', color: '#ef4444', marginTop: 2, fontWeight: 600 }}>
+                                ⚠️ Log today to keep your {daily}-day streak!
+                              </p>
+                            );
+                          if (wStatus === 'jeopardy' && weekly >= 2)
+                            return (
+                              <p style={{ fontSize: '0.72em', color: '#ef4444', marginTop: 2, fontWeight: 600 }}>
+                                ⚠️ Log this week to keep your {weekly}-week streak!
+                              </p>
+                            );
+
+                          // Recently ended — encourage a restart
+                          if (dStatus === 'recently_ended' && lastDaily >= 2)
+                            return (
+                              <p style={{ fontSize: '0.72em', color: '#6b7280', marginTop: 2, fontStyle: 'italic' }}>
+                                Your {lastDaily}-day streak just ended — start a new one today!
+                              </p>
+                            );
+                          if (wStatus === 'recently_ended' && lastWeekly >= 2)
+                            return (
+                              <p style={{ fontSize: '0.72em', color: '#6b7280', marginTop: 2, fontStyle: 'italic' }}>
+                                Your {lastWeekly}-week streak just ended — start fresh this week!
+                              </p>
+                            );
+
                           return null;
                         })()}
                         {(() => {
@@ -1855,36 +2020,16 @@ export default function App() {
                           }
                           const { goal, prog } = display;
                           if (!prog) return null;
-                          const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
-                          const isLIBc = goal.direction === 'lower_is_better';
-                          const hasEP = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
-                          let pct = (prog.pct ?? 0) * 100;
-                          if (hasEP && prog.current != null) {
-                            const range = isLIBc ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
-                            if (range !== 0) {
-                              const moved = isLIBc ? (goal.startingValue - prog.current) : (prog.current - goal.startingValue);
-                              pct = Math.min(100, Math.max(0, (moved / range) * 100));
-                            }
-                          }
-                          const barColor = isLBC
-                            ? (pct <= 60 ? '#10b981' : pct <= 85 ? '#f59e0b' : '#ef4444')
-                            : hasEP ? (pct >= 100 ? '#10b981' : '#f59e0b')
-                            : (prog.isOnTrack ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444');
                           return (
-                            <div style={{ marginTop: 6, width: '80%', margin: '6px auto 0' }}>
-                              <div style={{ width: '100%', height: 3, background: '#e5e7eb', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: barColor, borderRadius: 2 }} />
-                              </div>
-                              <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>
-                                {(() => {
-                                  const lbl = goalProgressLabel(goal.goalType, goal.direction, prog, v => `${v}${metricConfig[meta.cardName]?.uom ? '\u2009' + metricConfig[meta.cardName].uom : ''}`);
-                                  return lbl ?? `${Math.round(pct)}%`;
-                                })()}
-                                {display.mode === 'single-program' && (
-                                  <span style={{ fontWeight: 400, color: '#9ca3af' }}> · {display.programName}</span>
-                                )}
-                              </div>
-                            </div>
+                            <GoalStatusBlock
+                              goal={goal}
+                              prog={prog}
+                              tracking={metricConfig[goal.metricId]?.tracking ?? null}
+                              uom={metricConfig[goal.metricId]?.uom ?? ''}
+                              metricTitle={metricConfig[goal.metricId]?.title ?? ''}
+                              metricKind={metricConfig[goal.metricId]?.kind ?? ''}
+                              compact
+                            />
                           );
                         })()}
                       </div>
@@ -2001,22 +2146,40 @@ export default function App() {
 
           {/* ── Streak strip ── */}
           {(() => {
-            const cfg = metricConfig[historyMetric] ?? {};
-            const daily = cfg.currentDailyStreak ?? 0;
-            const weekly = cfg.currentWeeklyStreak ?? 0;
-            if (!daily && !weekly) return null;
+            const cfg        = metricConfig[historyMetric] ?? {};
+            const daily      = cfg.currentDailyStreak  ?? 0;
+            const weekly     = cfg.currentWeeklyStreak ?? 0;
+            const dStatus    = cfg.dailyStreakStatus   ?? 'dead';
+            const wStatus    = cfg.weeklyStreakStatus  ?? 'dead';
+            const lastDaily  = cfg.lastDailyStreak    ?? 0;
+            const lastWeekly = cfg.lastWeeklyStreak   ?? 0;
+
+            const pills = [];
+
+            // Daily
+            if (dStatus === 'active' && daily >= 1)
+              pills.push({ key: 'd-active', text: `🔥 ${daily} day streak`, color: '#b45309', bg: '#fffbeb', border: '#fde68a' });
+            else if (dStatus === 'jeopardy' && daily >= 1)
+              pills.push({ key: 'd-jeopardy', text: `⚠️ ${daily} day streak at risk — log today!`, color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' });
+            else if (dStatus === 'recently_ended' && lastDaily >= 2)
+              pills.push({ key: 'd-ended', text: `Your ${lastDaily}-day streak just ended — start fresh today!`, color: '#374151', bg: '#f3f4f6', border: '#d1d5db' });
+
+            // Weekly
+            if (wStatus === 'active' && weekly >= 1)
+              pills.push({ key: 'w-active', text: `🔥 ${weekly} week streak`, color: '#b45309', bg: '#fffbeb', border: '#fde68a' });
+            else if (wStatus === 'jeopardy' && weekly >= 1)
+              pills.push({ key: 'w-jeopardy', text: `⚠️ ${weekly} week streak at risk — log this week!`, color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' });
+            else if (wStatus === 'recently_ended' && lastWeekly >= 2)
+              pills.push({ key: 'w-ended', text: `Your ${lastWeekly}-week streak just ended — start fresh!`, color: '#374151', bg: '#f3f4f6', border: '#d1d5db' });
+
+            if (pills.length === 0) return null;
             return (
               <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-                {daily >= 1 && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600, color: '#b45309' }}>
-                    🔥 {daily} day streak
+                {pills.map(p => (
+                  <span key={p.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: p.bg, border: `1px solid ${p.border}`, borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600, color: p.color }}>
+                    {p.text}
                   </span>
-                )}
-                {weekly >= 1 && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: '4px 12px', fontSize: 13, fontWeight: 600, color: '#b45309' }}>
-                    🔥 {weekly} week streak
-                  </span>
-                )}
+                ))}
               </div>
             );
           })()}
@@ -3423,11 +3586,115 @@ export default function App() {
           <DialogContent className="goal-wizard-dialog">
             <DialogHeader>
               <DialogTitle>
-                {open.editGoalId ? 'Edit Goal' : 'Set a Goal'}{open.metricTitle ? ` — ${open.metricTitle}` : ''}
+                {open.screen === 'chain-overview'
+                  ? `Goal Chain — ${open.metricTitle ?? ''}`
+                  : open.editGoalId ? 'Edit Goal' : 'Set a Goal'}{open.screen !== 'chain-overview' && open.metricTitle ? ` — ${open.metricTitle}` : ''}
               </DialogTitle>
             </DialogHeader>
 
-            {/* ── Wizard (new goals) ── */}
+            {/* ── Screen: Chain Overview ── */}
+            {open.screen === 'chain-overview' && (() => {
+              const steps = (open.chainSteps ?? []).sort((a, b) => a.chainPosition - b.chainPosition);
+              const PERIOD_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling', all_time: 'All Time' };
+              const TYPE_LABELS   = { target_value: 'Target', cumulative: 'Cumulative', range: 'Range', streak: 'Streak', best_of: 'Personal Best' };
+              return (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {steps.map((step, idx) => {
+                    const isActive = step.isActive;
+                    const triggerLabel = step.triggerType === 'date'
+                      ? `Starts ${new Date(step.triggerDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      : step.triggerType === 'achievement'
+                      ? `Unlocks after ${step.triggerStreak} on-target period${step.triggerStreak !== 1 ? 's' : ''}`
+                      : 'Starts immediately (Step 1)';
+                    return (
+                      <div key={step.goalId} style={{
+                        borderRadius: 10, border: '2px solid',
+                        borderColor: isActive ? '#6366f1' : '#e5e7eb',
+                        background: isActive ? '#fafafe' : 'white',
+                        padding: 14,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+                                color: isActive ? '#4f46e5' : '#9ca3af',
+                                background: isActive ? '#eef2ff' : '#f3f4f6',
+                                borderRadius: 4, padding: '1px 6px',
+                              }}>Step {idx + 1}{isActive ? ' — Active' : ''}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                              {TYPE_LABELS[step.goalType] ?? step.goalType} · {PERIOD_LABELS[step.period] ?? step.period}
+                            </div>
+                            {isActive ? (
+                              <GoalStatusBlock
+                                goal={step}
+                                prog={goalProgress[step.goalId] ?? null}
+                                tracking={metricConfig[step.metricId]?.tracking ?? null}
+                                uom={metricConfig[step.metricId]?.uom ?? ''}
+                              />
+                            ) : (
+                              <>
+                                <div style={{ fontWeight: 600, fontSize: 14 }}>{step.name}</div>
+                                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{triggerLabel}</div>
+                              </>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                            <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto' }} onClick={() => openGoalEditAsWizard(step)}>
+                              <Edit size={14} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              style={{ padding: '4px 8px', height: 'auto', color: '#ef4444' }}
+                              onClick={() => handleDeleteGoalChain(step)}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Add next step */}
+                  <Button
+                    variant="secondary"
+                    style={{ marginTop: 4 }}
+                    onClick={() => {
+                      const lastStep = steps[steps.length - 1];
+                      if (!lastStep) return;
+                      const uom = metricConfig[lastStep.metricId]?.uom ?? '';
+                      const cfg = metricConfig[lastStep.metricId] ?? {};
+                      const metricTitle = open.metricTitle ?? '';
+                      const bumpedDraft = bumpFollowOnGoal(lastStep, metricTitle, cfg, uom);
+                      const todayIso = new Date().toISOString().split('T')[0];
+                      setOpen({
+                        type: 'goal-wizard', screen: 'wizard',
+                        metricId: open.metricId, metricTitle: open.metricTitle,
+                        wizStep: 'confirm',
+                        wiz: { nameIsCustom: true },
+                        draft: {
+                          ...bumpedDraft,
+                          metricId:      open.metricId,
+                          startDate:     todayIso,
+                          chainId:       open.chainId,
+                          chainPosition: lastStep.chainPosition + 1,
+                          isActive:      false,
+                        },
+                        editGoalId: undefined,
+                      });
+                    }}
+                  >
+                    + Add next step
+                  </Button>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                    <Button variant="secondary" onClick={() => setOpen(null)}>Close</Button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Wizard ── */}
             {open.screen === 'wizard' && (
               <GoalWizard
                 open={open}

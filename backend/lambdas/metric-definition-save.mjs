@@ -43,6 +43,7 @@ const VALID_ICONS        = new Set([
   "Bone", "Thermometer", "Pill", "Target", "Clock", "User",
 ]);
 const VALID_TRACKING_FLAVORS = new Set(["standalone", "cumulative"]);
+const VALID_TRACKING      = new Set(["cumulative", "trending", "spot"]);
 
 export const handler = async (event) => {
   const corsHeaders = {
@@ -69,6 +70,7 @@ export const handler = async (event) => {
       sliderEnabled, logicalMin, logicalMax, uom,
       falseTag, trueTag,
       trackingFlavor,
+      tracking,
     } = body;
 
     // ── Validate required fields ──────────────────────────────────────────
@@ -103,6 +105,8 @@ export const handler = async (event) => {
       updatedAt:    now,
       // trackingFlavor: 'standalone' | 'cumulative' | omitted (null/undefined → not stored)
       ...(VALID_TRACKING_FLAVORS.has(trackingFlavor) ? { trackingFlavor } : {}),
+      // tracking: 'cumulative' | 'trending' | 'spot' — UI hint for goal status phrasing
+      ...(VALID_TRACKING.has(tracking) ? { tracking } : {}),
     };
 
     if (valueType === "numeric") {

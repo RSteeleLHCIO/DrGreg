@@ -35,10 +35,11 @@ const TABLE       = process.env.TABLE_NAME  || "TobbiHealth";
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
 const JWT_SECRET  = process.env.JWT_SECRET  || "";
 
-const VALID_GOAL_TYPES   = new Set(["target_value", "cumulative", "range", "streak", "best_of"]);
-const VALID_PERIODS      = new Set(["daily", "weekly", "monthly", "rolling", "all_time"]);
-const VALID_DIRECTIONS   = new Set(["lower_is_better", "higher_is_better", "exact"]);
-const VALID_AGGREGATIONS = new Set(["sum", "count", "avg", "max", "min"]);
+const VALID_GOAL_TYPES    = new Set(["target_value", "cumulative", "range", "streak", "best_of"]);
+const VALID_PERIODS       = new Set(["daily", "weekly", "monthly", "rolling", "all_time"]);
+const VALID_DIRECTIONS    = new Set(["lower_is_better", "higher_is_better", "exact"]);
+const VALID_AGGREGATIONS  = new Set(["sum", "count", "avg", "max", "min"]);
+const VALID_TRIGGER_TYPES = new Set(["date", "achievement"]);
 
 const GOAL_ID_RE   = /^g-[a-z0-9-]+$/;
 const METRIC_ID_RE = /^[a-z0-9-]+$/;
@@ -73,6 +74,8 @@ export const handler = async (event) => {
       periodDays,  targetValue,   targetMin,    targetMax,
       direction,   aggregation,   streakTarget,
       isActive,    startDate,     endDate,      startingValue,
+      // chain fields (all optional)
+      chainId, chainPosition, triggerType, triggerDate, triggerStreak,
     } = body;
 
     // ── Required field validation ──────────────────────────────────────────
@@ -127,6 +130,23 @@ export const handler = async (event) => {
       return reply(400, { error: "endDate must be in YYYY-MM-DD format, or null." }, corsHeaders);
     }
 
+    // ── Chain field validation (all optional) ─────────────────────────────
+    if (chainId != null && (typeof chainId !== "string" || !chainId.trim())) {
+      return reply(400, { error: "chainId must be a non-empty string." }, corsHeaders);
+    }
+    if (chainPosition != null && (!Number.isInteger(chainPosition) || chainPosition < 0)) {
+      return reply(400, { error: "chainPosition must be a non-negative integer." }, corsHeaders);
+    }
+    if (triggerType != null && !VALID_TRIGGER_TYPES.has(triggerType)) {
+      return reply(400, { error: 'triggerType must be "date" or "achievement".' }, corsHeaders);
+    }
+    if (triggerDate != null && !DATE_RE.test(triggerDate)) {
+      return reply(400, { error: "triggerDate must be in YYYY-MM-DD format, or null." }, corsHeaders);
+    }
+    if (triggerStreak != null && (!Number.isInteger(triggerStreak) || triggerStreak < 1)) {
+      return reply(400, { error: "triggerStreak must be a positive integer." }, corsHeaders);
+    }
+
     // ── Verify metric exists and caller has access ─────────────────────────
     const { Item: def } = await ddb.send(new GetCommand({
       TableName: TABLE,
@@ -179,9 +199,15 @@ export const handler = async (event) => {
       streakTarget: goalType === "streak" ? streakTarget : null,
       isActive:    isActive !== false,
       startDate,
-      endDate:     endDate ?? null,
+      endDate:       endDate        ?? null,
       createdAt,
-      updatedAt:   now,
+      updatedAt:     now,
+      // chain fields
+      chainId:       chainId        ?? null,
+      chainPosition: chainPosition  ?? null,
+      triggerType:   triggerType    ?? null,
+      triggerDate:   triggerDate    ?? null,
+      triggerStreak: triggerStreak  ?? null,
     };
 
     await ddb.send(new PutCommand({ TableName: TABLE, Item: item }));

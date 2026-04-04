@@ -5,11 +5,11 @@
  * Each step renders its own Back button + content + <DialogFooter>.
  *
  * Step flow by path:
- *   Reach/fixed:       category → target-type → target-value → target-date → confirm
- *   Reach/best-of:     category → target-type → bestof-value → bestof-period → confirm
- *   Reach/accumulate:  category → target-type → cumulative-sum-value → cumulative-period → confirm
- *   Habit/streak:      category → habit-type → streak-days → confirm
- *   Habit/quota:       category → habit-type → cumulative-quota → cumulative-period → confirm
+ *   Reach/fixed:       category → target-type → target-value → target-date → confirm → chain-followup
+ *   Reach/best-of:     category → target-type → bestof-value → bestof-period → confirm → chain-followup
+ *   Reach/accumulate:  category → target-type → cumulative-sum-value → cumulative-period → confirm → chain-followup
+ *   Habit/streak:      category → habit-type → streak-days → confirm → chain-followup
+ *   Habit/quota:       category → habit-type → cumulative-quota → cumulative-period → confirm → chain-followup
  *                      (switch/boolean metrics skip habit-type and go straight to cumulative-quota)
  *
  *   Range goals are template-only (clinical edge case). The wizard does not expose them.
@@ -143,6 +143,128 @@ const COMMON_ACTION_VERBS = new Set([
   'weigh','work','write',
 ]);
 
+// ── Module-level helpers (used both inside wizard and for chain follow-on) ────
+
+const PERIOD_LABEL = { daily: 'day', weekly: 'week', monthly: 'month', all_time: 'all time', rolling: 'period' };
+
+function fmtVal(v, uom) {
+  return v != null ? `${v}${uom ? '\u2009' + uom : ''}` : '—';
+}
+
+export function buildGoalSummary(goal, metricTitle, metricKind, uom) {
+  const { goalType: gt, direction: dir, targetValue: val, period, aggregation, streakTarget, endDate } = goal;
+  const metric = metricTitle ?? '';
+  const pp      = PERIOD_PHRASE[period] ?? period ?? '';
+  const cap     = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  const fmtV    = v => v != null ? `${v}${uom ? '\u2009' + uom : ''}` : '—';
+  const qualifier = dir === 'lower_is_better' ? 'or less' : 'or more';
+  const buildVerbPhrase = () => {
+    const firstWord = metric.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+    return COMMON_ACTION_VERBS.has(firstWord) ? metric : `record ${metric}`;
+  };
+  if (gt === 'target_value') {
+    if (endDate) return `By ${endDate}, I want my ${metric} to be ${fmtV(val)} ${qualifier}`;
+    return `${cap(pp)}, I want my ${metric} to reach ${fmtV(val)} ${qualifier}`;
+  }
+  if (gt === 'best_of') {
+    return `I want to achieve a ${metric} of ${fmtV(val)} ${qualifier} — best reading ${pp}`;
+  }
+  if (gt === 'streak') {
+    return `I want to ${buildVerbPhrase()} for ${streakTarget} consecutive days`;
+  }
+  if (gt === 'cumulative') {
+    const qualifier2 = dir === 'higher_is_better' ? 'at least' : 'no more than';
+    if (aggregation === 'sum') {
+      return `${cap(pp)}, I want my total ${metric} to be ${qualifier2} ${fmtV(val)}`;
+    }
+    const vp = buildVerbPhrase();
+    if (metricKind === 'switch' && val === 1 && period === 'daily') {
+      return `I want to ${vp} every day`;
+    }
+    const suffix = PERIOD_SUFFIX[period] ?? pp;
+    return `I want to ${vp} ${qualifier2} ${val} time${val !== 1 ? 's' : ''} ${suffix}`;
+  }
+  return '';
+}
+
+function buildDefaultNameFor(draft, metricTitle, cfg, uom) {
+  const gt  = draft.goalType;
+  const dir = draft.direction;
+  const qualifier = dir === 'lower_is_better' ? 'or less' : 'or more';
+  const metric = metricTitle.toLowerCase();
+  const fmtV = v => fmtVal(v, uom);
+  if (gt === 'target_value')  return `${metricTitle} ${fmtV(draft.targetValue)} ${qualifier}`;
+  if (gt === 'best_of')       return `${metricTitle} personal best — ${fmtV(draft.targetValue)}`;
+  if (gt === 'streak')        return `${draft.streakTarget}-day ${metric} streak`;
+  if (gt === 'cumulative') {
+    const q      = dir === 'higher_is_better' ? 'at least' : 'at most';
+    const period = PERIOD_LABEL[draft.period] ?? draft.period ?? 'period';
+    if (draft.aggregation === 'sum') {
+      return `${metricTitle} ${q} ${fmtV(draft.targetValue)} per ${period}`;
+    }
+    if (cfg?.kind === 'switch' && draft.targetValue === 1 && draft.period === 'daily') {
+      return `${metricTitle} — every day`;
+    }
+    return `${metricTitle} ${q} ${draft.targetValue}× per ${period}`;
+  }
+  return `${metricTitle} goal`;
+}
+
+// Returns the number of decimal places in a number (for rounding bumped values to same precision).
+function decimalPlaces(n) {
+  const s = String(n);
+  const dot = s.indexOf('.');
+  return dot === -1 ? 0 : s.length - dot - 1;
+}
+
+function roundTo(n, places) {
+  const f = Math.pow(10, places);
+  return Math.round(n * f) / f;
+}
+
+// Applies a direction-aware 10% bump to a draft to produce sensible follow-on goal defaults.
+export function bumpFollowOnGoal(prevDraft, metricTitle, cfg, uom) {
+  const draft = { ...prevDraft };
+  const dir   = draft.direction;
+  const gt    = draft.goalType;
+
+  if (gt === 'range') {
+    if (dir === 'higher_is_better') {
+      // Old max becomes new min; new max = old max × 1.1
+      const places = decimalPlaces(draft.targetMax);
+      const newMax = Math.max(roundTo(draft.targetMax * 1.1, places), draft.targetMax + 1);
+      draft.targetMin = draft.targetMax;
+      draft.targetMax = newMax;
+    } else if (dir === 'lower_is_better') {
+      // Old min becomes new max; new min = old min × 0.9
+      const places = decimalPlaces(draft.targetMin);
+      const newMin = Math.max(1, Math.min(roundTo(draft.targetMin * 0.9, places), draft.targetMin - 1));
+      draft.targetMax = draft.targetMin;
+      draft.targetMin = newMin;
+    }
+  } else if (gt === 'streak') {
+    const places  = decimalPlaces(draft.streakTarget);
+    const bumped  = roundTo(draft.streakTarget * 1.1, places);
+    draft.streakTarget = Math.max(bumped, draft.streakTarget + 1);
+  } else if (['target_value', 'cumulative', 'best_of'].includes(gt)) {
+    if (dir === 'higher_is_better') {
+      const places = decimalPlaces(draft.targetValue);
+      const bumped = roundTo(draft.targetValue * 1.1, places);
+      draft.targetValue = Math.max(bumped, draft.targetValue + (places === 0 ? 1 : Math.pow(10, -places)));
+      // For target_value goals, the new startingValue = old targetValue (user starts where they left off)
+      if (gt === 'target_value') draft.startingValue = prevDraft.targetValue;
+    } else if (dir === 'lower_is_better') {
+      const places = decimalPlaces(draft.targetValue);
+      const bumped = roundTo(draft.targetValue * 0.9, places);
+      draft.targetValue = Math.max(1, Math.min(bumped, draft.targetValue - (places === 0 ? 1 : Math.pow(10, -places))));
+      if (gt === 'target_value') draft.startingValue = prevDraft.targetValue;
+    }
+  }
+
+  draft.name = buildDefaultNameFor(draft, metricTitle, cfg, uom);
+  return draft;
+}
+
 function PeriodPicker({ value, onChange, exclude = [] }) {
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -233,6 +355,7 @@ export function GoalWizard({ open, setOpen, onSave, metricConfig, templates = []
         else goTo('category');
         break;
       }
+      case 'chain-followup': goTo('confirm'); break;
       default: setOpen(null);
     }
   };
@@ -286,26 +409,7 @@ export function GoalWizard({ open, setOpen, onSave, metricConfig, templates = []
 
   // ── Auto-suggested goal name ─────────────────────────────────────────────
   function buildDefaultName() {
-    const gt  = draft.goalType;
-    const dir = draft.direction;
-    const qualifier = dir === 'lower_is_better' ? 'or less' : 'or more';
-    if (gt === 'target_value')  return `${metricTitle} ${fmtV(draft.targetValue)} ${qualifier}`;
-    if (gt === 'best_of')       return `${metricTitle} personal best — ${fmtV(draft.targetValue)}`;
-    if (gt === 'streak')        return `${draft.streakTarget}-day ${metric} streak`;
-    if (gt === 'cumulative') {
-      const q = dir === 'higher_is_better' ? 'at least' : 'at most';
-      const PERIOD_LABEL = { daily: 'day', weekly: 'week', monthly: 'month', all_time: 'all time', rolling: 'period' };
-      const period = PERIOD_LABEL[draft.period] ?? draft.period ?? 'period';
-      if (draft.aggregation === 'sum') {
-        return `${metricTitle} ${q} ${fmtV(draft.targetValue)} per ${period}`;
-      }
-      // Boolean/switch metric: "Take X every day" reads more naturally than "at least 1× per day"
-      if (cfg.kind === 'switch' && draft.targetValue === 1 && draft.period === 'daily') {
-        return `${metricTitle} — every day`;
-      }
-      return `${metricTitle} ${q} ${draft.targetValue}× per ${period}`;
-    }
-    return `${metricTitle} goal`;
+    return buildDefaultNameFor(draft, metricTitle, cfg, uom);
   }
 
   // Atomically move to confirm, always regenerating the name unless user explicitly customised it
@@ -958,9 +1062,111 @@ export function GoalWizard({ open, setOpen, onSave, metricConfig, templates = []
         )}
         <WizardFooter onCancel={cancel}>
           <Button variant="secondary" onClick={handleBack}>Back</Button>
-          <Button onClick={onSave} disabled={open.isSaving}>
-            {open.isSaving ? 'Saving…' : 'Save Goal'}
+          <Button onClick={() => goTo('chain-followup')}>
+            Next
           </Button>
+        </WizardFooter>
+      </>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // STEP: chain-followup
+  // ══════════════════════════════════════════════════════════════════════════
+  if (step === 'chain-followup') {
+    const opt         = wiz.chainOption ?? 'none';
+    const chainDate   = wiz.chainDate   ?? '';
+    const chainStreak = wiz.chainStreak ?? '';
+    const periodLabel = draft.period === 'daily'   ? 'day'
+                      : draft.period === 'weekly'  ? 'week'
+                      : draft.period === 'monthly' ? 'month'
+                      : 'period';
+
+    const dateOk   = /^\d{4}-\d{2}-\d{2}$/.test(chainDate);
+    const streakOk = Number.isInteger(+chainStreak) && +chainStreak >= 1;
+    const canSaveChain = opt === 'none'
+      || (opt === 'date'        && dateOk)
+      || (opt === 'achievement' && streakOk);
+
+    const handleSaveNoChain = () => onSave(null, null);
+
+    const handleSaveWithChain = () => {
+      const chainId     = draft.chainId ?? crypto.randomUUID();
+      const pos         = draft.chainPosition ?? 0;
+      const bumpedDraft = bumpFollowOnGoal(draft, metricTitle, cfg, uom);
+      onSave(
+        { chainId, chainPosition: pos, triggerType: null, isActive: true },
+        {
+          chainId,
+          nextPosition:  pos + 1,
+          triggerType:   opt,
+          triggerDate:   opt === 'date'        ? chainDate    : null,
+          triggerStreak: opt === 'achievement' ? +chainStreak : null,
+          bumpedDraft,
+        }
+      );
+    };
+
+    return (
+      <>
+        <BackButton onClick={handleBack} />
+        <StepQuestion
+          question="Want to level up?"
+          subtitle={`Add a follow-up goal for ${metricTitle} that activates automatically when you're ready.`}
+        />
+        <div style={{ display: 'grid', gap: 10, marginBottom: 20 }}>
+          <ChoiceCard
+            selected={opt === 'none'}
+            onClick={() => updateWiz({ chainOption: 'none' })}
+            title="No more goals — let's stop here"
+          />
+          <ChoiceCard
+            selected={opt === 'date'}
+            onClick={() => updateWiz({ chainOption: 'date' })}
+            title="Start a follow-up on a specific date"
+            description="Automatically switch to the next goal on the date you choose"
+          />
+          {opt === 'date' && (
+            <div style={{ paddingLeft: 16 }}>
+              <Input
+                type="date"
+                value={chainDate}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={e => updateWiz({ chainDate: e.target.value })}
+                style={{ width: 180 }}
+              />
+            </div>
+          )}
+          <ChoiceCard
+            selected={opt === 'achievement'}
+            onClick={() => updateWiz({ chainOption: 'achievement' })}
+            title="Start a follow-up when I've been nailing it"
+            description={`Activate the next goal after hitting this one for several ${periodLabel}s in a row`}
+          />
+          {opt === 'achievement' && (
+            <div style={{ paddingLeft: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Input
+                type="number"
+                min="1"
+                value={chainStreak}
+                onChange={e => updateWiz({ chainStreak: e.target.value })}
+                style={{ width: 70 }}
+              />
+              <span style={{ fontSize: 13, color: '#374151' }}>
+                consecutive {periodLabel}s on target
+              </span>
+            </div>
+          )}
+        </div>
+        {open.saveError && (
+          <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 8 }}>{open.saveError}</div>
+        )}
+        <WizardFooter onCancel={cancel}>
+          <Button variant="secondary" onClick={handleBack}>Back</Button>
+          {opt === 'none'
+            ? <Button onClick={handleSaveNoChain} disabled={open.isSaving}>{open.isSaving ? 'Saving…' : 'Save Goal'}</Button>
+            : <Button onClick={handleSaveWithChain} disabled={!canSaveChain || open.isSaving}>{open.isSaving ? 'Saving…' : 'Save & Set Follow-Up'}</Button>
+          }
         </WizardFooter>
       </>
     );
