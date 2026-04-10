@@ -88,6 +88,9 @@ Compress-Archive -Force -Path program-save.mjs, node_modules, package.json -Dest
 Compress-Archive -Force -Path program-delete.mjs, node_modules, package.json -DestinationPath program-delete.zip
 Compress-Archive -Force -Path program-enroll.mjs, node_modules, package.json -DestinationPath program-enroll.zip
 Compress-Archive -Force -Path programs-enrolled-get.mjs, node_modules, package.json -DestinationPath programs-enrolled-get.zip
+Compress-Archive -Force -Path journey-save.mjs, node_modules, package.json -DestinationPath journey-save.zip
+Compress-Archive -Force -Path journeys-get.mjs, node_modules, package.json -DestinationPath journeys-get.zip
+Compress-Archive -Force -Path journey-delete.mjs, node_modules, package.json -DestinationPath journey-delete.zip
 ```
 
 ---
@@ -169,6 +172,9 @@ Each Lambda needs permission to read and write the DynamoDB table.
 | POST | `/program/enroll`   | `tobbihealth-program-enroll` |
 | DELETE | `/program/enroll` | `tobbihealth-program-enroll` |
 | GET  | `/programs/enrolled`| `tobbihealth-programs-enrolled-get` |
+| PUT  | `/journey`          | `tobbihealth-journey-save` |
+| DELETE | `/journey`        | `tobbihealth-journey-delete` |
+| GET  | `/journeys`         | `tobbihealth-journeys-get` |
 
 4. Under **CORS**, set:
    - **Allow origin**: `http://localhost:5173`

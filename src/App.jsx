@@ -15,7 +15,7 @@ import { Slider } from "./components/ui/slider";
 import { Label } from "./components/ui/label";
 import { Calendar } from "./components/ui/calendar";
 import { toKey, fmtTime, fmtDateTime, toSentenceCase } from "./utils/helpers";
-import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS, PROGRAM_ITEM_DEFAULTS } from './db/schema';
+import { METRIC_GOAL_TEMPLATES, GOAL_DEFAULTS } from './db/schema';
 import LoginScreen from "./components/login-screen";
 import ProfileSetup from "./components/profile-setup";
 import { GoalWizard, bumpFollowOnGoal } from "./components/goal-wizard";
@@ -145,10 +145,8 @@ export default function App() {
     fetchAndApplyEntries(token);
     // Load saved goals for this user.
     fetchAndApplyGoals(token);
-    // Load program enrolments.
-    fetchAndApplyEnrollments(token);
-    // Load user's programs.
-    fetchAndApplyPrograms(token);
+    // Load user's journeys.
+    fetchJourneys(token);
   }
 
   async function fetchAndApplyEntries(token) {
@@ -192,28 +190,14 @@ export default function App() {
     } catch {}
   }
 
-  async function fetchAndApplyEnrollments(token) {
+  async function fetchJourneys(token) {
     try {
-      const res = await fetch(`${API}/programs/enrolled`, {
+      const res = await fetch(`${API}/journeys`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        const { enrollments: list } = await res.json();
-        setEnrollments(list ?? []);
-      }
-    } catch {}
-  }
-
-  async function fetchAndApplyPrograms(token) {
-    try {
-      const res = await fetch(`${API}/programs/catalog`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const { programs: list } = await res.json();
-        // Keep only programs owned by this user (personal type)
-        const userId = user?.userId ?? user?.sub;
-        setPrograms((list ?? []).filter(p => p.programType === 'personal' && p.createdBy === userId));
+        const { journeys: list } = await res.json();
+        setJourneys(list ?? []);
       }
     } catch {}
   }
@@ -578,32 +562,31 @@ export default function App() {
     const metricGoals = goals.filter(g => g.metricId === metricId && g.isActive);
     if (!metricGoals.length) return { mode: 'none' };
 
-    // Build goalId → programName[] from active enrollments
-    const goalProgramNames = {};
-    for (const enr of enrollments) {
-      if (!enr.isActive) continue;
-      for (const gid of (enr.enrolledGoalIds ?? [])) {
-        if (!goalProgramNames[gid]) goalProgramNames[gid] = [];
-        goalProgramNames[gid].push(enr.programName);
+    // Build goalId → journeyName[] from journeys
+    const goalJourneyNames = {};
+    for (const j of journeys) {
+      for (const gid of (j.goalIds ?? [])) {
+        if (!goalJourneyNames[gid]) goalJourneyNames[gid] = [];
+        goalJourneyNames[gid].push(j.name);
       }
     }
 
-    const standaloneGoals = metricGoals.filter(g => !goalProgramNames[g.goalId]?.length);
+    const standaloneGoals = metricGoals.filter(g => !goalJourneyNames[g.goalId]?.length);
     if (standaloneGoals.length > 0) {
       const goal = standaloneGoals[0];
       return { mode: 'standalone', goal, prog: goalProgress[goal.goalId] ?? null };
     }
 
-    const allProgramNames = [...new Set(
-      metricGoals.flatMap(g => goalProgramNames[g.goalId] ?? [])
+    const allJourneyNames = [...new Set(
+      metricGoals.flatMap(g => goalJourneyNames[g.goalId] ?? [])
     )];
 
-    if (allProgramNames.length === 1) {
+    if (allJourneyNames.length === 1) {
       const goal = metricGoals[0];
-      return { mode: 'single-program', goal, prog: goalProgress[goal.goalId] ?? null, programName: allProgramNames[0] };
+      return { mode: 'single-program', goal, prog: goalProgress[goal.goalId] ?? null, programName: allJourneyNames[0] };
     }
 
-    return { mode: 'multi-program', programNames: allProgramNames };
+    return { mode: 'multi-program', programNames: allJourneyNames };
   }
 
   function openGoalWizard(metricId, specificGoalId) {
@@ -701,12 +684,18 @@ export default function App() {
           },
           editGoalId: undefined,
         });
+      } else if (open._returnToJourney) {
+        // Return to journey wizard with the new goal adopted
+        const jctx = open._returnToJourney;
+        setOpen({
+          ...jctx,
+          screen: 'goals-list',
+          draft: { ...jctx.draft, goalIds: [...(jctx.draft.goalIds ?? []), goal.goalId] },
+        });
       } else {
         setOpen(null);
       }
-    } catch {
-      setOpen({ ...open, isSaving: false, saveError: 'Network error. Please try again.' });
-    }
+    } catch {}
   }
 
   async function handleDeleteGoal(goalId) {
@@ -827,133 +816,58 @@ export default function App() {
     }));
   }
 
-  // ── Program wizard ─────────────────────────────────────────────────────────
+  // ── Journey wizard ─────────────────────────────────────────────────────────
 
-  function openProgramWizard(existingProgram) {
-    if (existingProgram) {
-      // Enrich stored items with goal config from the current enrollment/goals,
-      // because program-save only persists metricId/itemId/notes — not the goal blueprint.
-      const enrollment = enrollments.find(e => e.programId === existingProgram.programId && e.isActive);
-      const enrichedItems = (existingProgram.items ?? []).map(item => {
-        const enrolledGoal = enrollment
-          ? goals.find(g => enrollment.enrolledGoalIds?.includes(g.goalId) && g.metricId === item.metricId)
-          : null;
-        if (!enrolledGoal) return item;
-        return {
-          ...item,
-          _enrolledGoalId: enrolledGoal.goalId,
-          goalName:        enrolledGoal.name,
-          goalType:        enrolledGoal.goalType,
-          period:          enrolledGoal.period,
-          periodDays:      enrolledGoal.periodDays,
-          direction:       enrolledGoal.direction,
-          aggregation:     enrolledGoal.aggregation,
-          targetValue:     enrolledGoal.targetValue,
-          startingValue:   enrolledGoal.startingValue,
-          targetMin:       enrolledGoal.targetMin,
-          targetMax:       enrolledGoal.targetMax,
-          streakTarget:    enrolledGoal.streakTarget,
-        };
-      });
-      setOpen({ type: 'program-wizard', screen: 'name', programId: existingProgram.programId, draft: { ...existingProgram, items: enrichedItems } });
+  function openJourneyWizard(existingJourney) {
+    if (existingJourney) {
+      setOpen({ type: 'journey-wizard', screen: 'name', journeyId: existingJourney.journeyId, draft: { ...existingJourney } });
     } else {
-      setOpen({ type: 'program-wizard', screen: 'name', programId: null, draft: { name: '', description: '', items: [] } });
+      setOpen({ type: 'journey-wizard', screen: 'name', journeyId: null, draft: { name: '', description: '', goalIds: [] } });
     }
   }
 
-  async function handleSaveProgram() {
+  async function handleSaveJourney() {
     const draft = open?.draft;
     if (!draft?.name?.trim()) {
-      setOpen({ ...open, saveError: 'Please enter a program name.' });
+      setOpen({ ...open, saveError: 'Please enter a journey name.' });
       return;
     }
-    if (!draft.items?.length) {
-      setOpen({ ...open, saveError: 'Add at least one metric goal before saving.' });
+    if (!draft.goalIds?.length) {
+      setOpen({ ...open, saveError: 'Add at least one goal before saving.' });
       return;
     }
     setOpen({ ...open, isSaving: true, saveError: undefined });
     try {
-      const userId = user?.userId ?? user?.sub ?? '';
-      const progId = open.programId || `prog-${Date.now().toString(36)}`;
-      const programPayload = {
-        ...draft,
-        programId:   progId,
-        programType: 'personal',
-        createdBy:   userId,
-      };
-
-      // 1 — Save the program definition
-      const progRes = await fetch(`${API}/program`, {
+      const jid     = open.journeyId || `jrn-${Date.now().toString(36)}`;
+      const payload = { journeyId: jid, name: draft.name.trim(), description: draft.description ?? '', goalIds: draft.goalIds };
+      const res = await fetch(`${API}/journey`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(programPayload),
+        body: JSON.stringify(payload),
       });
-      if (!progRes.ok) {
-        const err = await progRes.json().catch(() => ({}));
-        setOpen({ ...open, isSaving: false, saveError: err.error || 'Failed to save program.' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setOpen({ ...open, isSaving: false, saveError: err.error || 'Failed to save journey.' });
         return;
       }
-      const { program: savedProgram } = await progRes.json();
-
-      // 2 — Create a live goal for each item and collect goalIds
-      const todayIso = new Date().toISOString().split('T')[0];
-      const enrolledGoalIds = [];
-      for (const item of draft.items) {
-        const goalBody = {
-          ...(item._enrolledGoalId ? { goalId: item._enrolledGoalId } : {}),
-          metricId:     item.metricId,
-          name:         item.goalName || item.metricId,
-          goalType:     item.goalType,
-          period:       item.period,
-          direction:    item.direction,
-          aggregation:  item.aggregation ?? 'avg',
-          targetValue:  item.targetValue ?? null,
-          startingValue: item.startingValue ?? null,
-          targetMin:    item.targetMin ?? null,
-          targetMax:    item.targetMax ?? null,
-          streakTarget: item.streakTarget ?? null,
-          periodDays:   item.periodDays ?? null,
-          startDate:    todayIso,
-          isActive:     true,
-        };
-        const gRes = await fetch(`${API}/goal`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify(goalBody),
-        });
-        if (gRes.ok) {
-          const { goal } = await gRes.json();
-          setGoals(prev => [...prev.filter(g => g.goalId !== goal.goalId), goal]);
-          fetchGoalProgress(authToken, [goal]);
-          enrolledGoalIds.push(goal.goalId);
-        }
-      }
-
-      // 3 — Auto-enroll (personal program; creator is always enrolled)
-      await fetch(`${API}/program/enroll`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ programId: progId, enrolledGoalIds, isCustomized: false }),
-      });
-
-      setPrograms(prev => [...prev.filter(p => p.programId !== progId), savedProgram ?? programPayload]);
-      fetchAndApplyEnrollments(authToken);
+      const { journey: saved } = await res.json();
+      setJourneys(prev => [...prev.filter(j => j.journeyId !== jid), saved ?? payload]);
       setOpen(null);
     } catch {
       setOpen({ ...open, isSaving: false, saveError: 'Network error. Please try again.' });
     }
   }
 
-  async function handleDeleteProgram(programId) {
-    if (!window.confirm('Delete this program? Associated goals will remain but will no longer be linked to the program.')) return;
+  async function handleDeleteJourney(journeyId) {
+    if (!window.confirm('Delete this journey? Associated goals will remain but will no longer be linked to this journey.')) return;
     try {
-      const res = await fetch(`${API}/program`, {
+      const res = await fetch(`${API}/journey`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ programId }),
+        body: JSON.stringify({ journeyId }),
       });
       if (res.ok) {
-        setPrograms(prev => prev.filter(p => p.programId !== programId));
+        setJourneys(prev => prev.filter(j => j.journeyId !== journeyId));
       }
     } catch {}
   }
@@ -966,8 +880,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState('day');
   const [goals, setGoals] = useState([]);
   const [goalProgress, setGoalProgress] = useState({});
-  const [enrollments, setEnrollments] = useState([]);
-  const [programs, setPrograms] = useState([]);
+  const [journeys, setJourneys] = useState([]);
   const defaultHistoryMetric = 'weight';
   const [historyMetric, setHistoryMetric] = useState(defaultHistoryMetric);
   const [prevViewMode, setPrevViewMode] = useState('day');
@@ -1284,7 +1197,7 @@ export default function App() {
               <div className="mydata-hero-sub">{getGreeting()}, {user.firstName} &middot; {nowText}</div>
             </div>
             <div className="myprogs-hero-actions">
-              <Button variant="outline" className="btn-icon" aria-label="New Program" title="New Program" onClick={() => openProgramWizard(null)}>
+              <Button variant="outline" className="btn-icon" aria-label="New Journey" title="New Journey" onClick={() => openJourneyWizard(null)}>
                 <Plus />
               </Button>
               <Button variant="outline" className="btn-icon" aria-label="My Data" title="My Data" onClick={() => setActiveSection('my-data')}>
@@ -1295,68 +1208,56 @@ export default function App() {
 
           {/* Content */}
           <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 0 80px' }}>
-            {programs.length === 0 ? (
+            {journeys.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 24px', background: '#f9fafb', borderRadius: 12, border: '1px dashed #d1d5db', marginTop: 8 }}>
                 <NestedRingsLogo size={80} highlight="programs" strokeColor="#9ca3af" fillColor="#d9f99d" strokeOpacity={0.6} className="logo-pulse" style={{ marginBottom: 10 }} />
-                <div style={{ fontWeight: 600, fontSize: 15, color: '#374151', marginBottom: 6 }}>No programs yet</div>
-                <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>Create a personal program to bundle metrics and goals into a structured plan.</div>
-                <Button onClick={() => openProgramWizard(null)}>
-                  <Plus size={14} style={{ marginRight: 6 }} />Create Your First Program
+                <div style={{ fontWeight: 600, fontSize: 15, color: '#374151', marginBottom: 6 }}>No journeys yet</div>
+                <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 16 }}>Create a journey to bundle metrics and goals into a structured plan.</div>
+                <Button onClick={() => openJourneyWizard(null)}>
+                  <Plus size={14} style={{ marginRight: 6 }} />Create Your First Journey
                 </Button>
               </div>
             ) : (
               <div className="myprogs-cards-grid">
-                {programs.map((prog, progIdx) => {
-                  const enrollment = enrollments.find(e => e.programId === prog.programId && e.isActive);
-                  const itemCount = prog.items?.length ?? 0;
+                {journeys.map((jrn, jrnIdx) => {
+                  const jrnGoals = (jrn.goalIds ?? []).map(id => goals.find(g => g.goalId === id)).filter(Boolean);
                   return (
-                    <div key={prog.programId} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', animation: 'card-pop-in 0.38s cubic-bezier(0.22,1,0.36,1) both', animationDelay: `${progIdx * 0.07}s` }}>
+                    <div key={jrn.journeyId} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', animation: 'card-pop-in 0.38s cubic-bezier(0.22,1,0.36,1) both', animationDelay: `${jrnIdx * 0.07}s` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2, flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 700, fontSize: 15 }}>{prog.name}</span>
-                            {enrollment && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, background: '#dcfce7', padding: '1px 8px', borderRadius: 10 }}>Active</span>}
-                          </div>
-                          {prog.description && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{prog.description}</div>}
-                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{itemCount} metric goal{itemCount !== 1 ? 's' : ''}</div>
+                          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{jrn.name}</div>
+                          {jrn.description && <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>{jrn.description}</div>}
+                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{jrnGoals.length} goal{jrnGoals.length !== 1 ? 's' : ''}</div>
                         </div>
                         <div style={{ display: 'flex', gap: 4, marginLeft: 10, flexShrink: 0 }}>
-                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12 }} onClick={() => openProgramWizard(prog)}>Edit</Button>
-                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12, color: '#ef4444' }} onClick={() => handleDeleteProgram(prog.programId)}>Delete</Button>
+                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12 }} onClick={() => openJourneyWizard(jrn)}>Edit</Button>
+                          <Button variant="ghost" style={{ padding: '4px 8px', height: 'auto', fontSize: 12, color: '#ef4444' }} onClick={() => handleDeleteJourney(jrn.journeyId)}>Delete</Button>
                         </div>
                       </div>
-                      {prog.items?.length > 0 && (
+                      {jrnGoals.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid #f3f4f6' }}>
-                          {prog.items.map(item => {
-                            const cfg = metricConfig[item.metricId] ?? {};
-                            const title = cfg.title || toSentenceCase(item.metricId);
+                          {jrnGoals.map(goal => {
+                            const cfg = metricConfig[goal.metricId] ?? {};
+                            const title = cfg.title || toSentenceCase(goal.metricId);
                             const Icon = METRIC_ICONS[cfg._icon] ?? Activity;
-                            const enrolledGoal = enrollment
-                              ? goals.find(g =>
-                                  enrollment.enrolledGoalIds?.includes(g.goalId) &&
-                                  g.metricId === item.metricId
-                                )
-                              : null;
-                            const prog2 = enrolledGoal ? (goalProgress[enrolledGoal.goalId] ?? null) : null;
-                            const pctRaw = prog2?.pct ?? null;
+                            const prog2 = goalProgress[goal.goalId] ?? null;
                             const itemUom = cfg.uom ?? '';
                             const fmtVi = v => v != null ? `${v}${itemUom ? '\u2009' + itemUom : ''}` : '—';
-                            const isLIBi = (enrolledGoal?.direction ?? item.direction) === 'lower_is_better';
-                            const hasEndpoints = item.goalType === 'target_value' && enrolledGoal?.startingValue != null && enrolledGoal?.targetValue != null;
+                            const isLIBi = goal.direction === 'lower_is_better';
+                            const hasEndpoints = goal.goalType === 'target_value' && goal.startingValue != null && goal.targetValue != null;
 
-                            // Recompute bar pct from start→target range when applicable
-                            let barPctI = pctRaw != null ? pctRaw * 100 : null;
+                            let barPctI = prog2?.pct != null ? prog2.pct * 100 : null;
                             if (hasEndpoints && prog2?.current != null) {
-                              const range = isLIBi ? (enrolledGoal.startingValue - enrolledGoal.targetValue) : (enrolledGoal.targetValue - enrolledGoal.startingValue);
+                              const range = isLIBi ? (goal.startingValue - goal.targetValue) : (goal.targetValue - goal.startingValue);
                               if (range !== 0) {
-                                const moved = isLIBi ? (enrolledGoal.startingValue - prog2.current) : (prog2.current - enrolledGoal.startingValue);
+                                const moved = isLIBi ? (goal.startingValue - prog2.current) : (prog2.current - goal.startingValue);
                                 barPctI = Math.min(100, Math.max(0, (moved / range) * 100));
                               }
                             }
 
-                            const isLBC = item.goalType === 'cumulative' && item.direction === 'lower_is_better';
+                            const isLBC = goal.goalType === 'cumulative' && goal.direction === 'lower_is_better';
                             const barColor = prog2
-                              ? (item.goalType === 'range'
+                              ? (goal.goalType === 'range'
                                   ? (prog2.isOnTrack ? '#10b981' : '#f59e0b')
                                   : isLBC
                                     ? (barPctI <= 60 ? '#10b981' : barPctI <= 85 ? '#f59e0b' : '#ef4444')
@@ -1366,27 +1267,20 @@ export default function App() {
                               : '#d1d5db';
 
                             const progressLabel = prog2
-                              ? goalProgressLabel(enrolledGoal?.goalType ?? item.goalType, enrolledGoal?.direction ?? item.direction, prog2, fmtVi)
+                              ? goalProgressLabel(goal.goalType, goal.direction, prog2, fmtVi)
                               : null;
                             return (
-                              <div key={item.itemId}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0, flex: 1 }}>
-                                    <Icon size={12} style={{ color: '#6b7280', flexShrink: 0 }} />
-                                    <span style={{ fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.goalName || title}</span>
-                                  </div>
+                              <div key={goal.goalId}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+                                  <Icon size={12} style={{ color: '#6b7280', flexShrink: 0 }} />
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{goal.name}</span>
                                 </div>
+                                <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 3 }}>{title} · {(goal.goalType ?? '').replace(/_/g, ' ')} · {goal.period}</div>
                                 {hasEndpoints && (
                                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9ca3af', marginBottom: 2 }}>
-                                    <span>{fmtVi(enrolledGoal.startingValue)}</span>
+                                    <span>{fmtVi(goal.startingValue)}</span>
                                     {prog2?.current != null && <span style={{ color: '#374151', fontWeight: 600 }}>{fmtVi(prog2.current)}</span>}
-                                    <span>{fmtVi(enrolledGoal.targetValue)}</span>
-                                  </div>
-                                )}
-                                {item.goalType === 'range' && enrolledGoal?.targetMin != null && (
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9ca3af', marginBottom: 2 }}>
-                                    <span>Range: {fmtVi(enrolledGoal.targetMin)}–{fmtVi(enrolledGoal.targetMax)}</span>
-                                    {prog2?.current != null && <span style={{ color: '#374151', fontWeight: 600 }}>{fmtVi(prog2.current)}</span>}
+                                    <span>{fmtVi(goal.targetValue)}</span>
                                   </div>
                                 )}
                                 <div style={{ height: 5, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
@@ -1396,7 +1290,7 @@ export default function App() {
                                   <div style={{ fontSize: 10, color: barColor, fontWeight: 600, marginTop: 2 }}>{progressLabel}</div>
                                 )}
                                 {!prog2 && (
-                                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{(item.period ?? '').replace(/_/g, ' ')}</div>
+                                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{(goal.period ?? '').replace(/_/g, ' ')}</div>
                                 )}
                               </div>
                             );
@@ -3865,22 +3759,23 @@ export default function App() {
         )}
       </Dialog>
 
-      {/* ===== PROGRAM WIZARD DIALOG ===== */}
-      <Dialog open={open?.type === 'program-wizard'} onOpenChange={v => { if (!v) setOpen(null); }}>
-        {open?.type === 'program-wizard' && (() => {
-          const draft = open.draft ?? {};
-          const items = draft.items ?? [];
+      {/* ===== JOURNEY WIZARD DIALOG ===== */}
+      <Dialog open={open?.type === 'journey-wizard'} onOpenChange={v => { if (!v) setOpen(null); }}>
+        {open?.type === 'journey-wizard' && (() => {
+          const draft   = open.draft ?? {};
+          const goalIds = draft.goalIds ?? [];
+          const adoptedGoals = goalIds.map(id => goals.find(g => g.goalId === id)).filter(Boolean);
 
           // ── Screen: name ──────────────────────────────────────────────
           if (open.screen === 'name') {
             return (
               <DialogContent className="narrow-dialog">
                 <DialogHeader>
-                  <DialogTitle>{open.programId ? 'Edit Program' : 'Create Program'}</DialogTitle>
+                  <DialogTitle>{open.journeyId ? 'Edit Journey' : 'Create Journey'}</DialogTitle>
                 </DialogHeader>
                 <div style={{ display: 'grid', gap: 14 }}>
                   <fieldset className="notched-field">
-                    <legend className="notched-label">Program Name *</legend>
+                    <legend className="notched-label">Journey Name *</legend>
                     <input
                       type="text" autoFocus
                       value={draft.name ?? ''}
@@ -3893,7 +3788,7 @@ export default function App() {
                     <input
                       type="text"
                       value={draft.description ?? ''}
-                      placeholder="What is this program for?"
+                      placeholder="What is this journey for?"
                       onChange={e => setOpen({ ...open, draft: { ...draft, description: e.target.value } })}
                       style={{ border: 'none', outline: 'none', width: '100%', background: 'transparent' }}
                     />
@@ -3903,16 +3798,16 @@ export default function App() {
                 <DialogFooter>
                   <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
                   <Button onClick={() => {
-                    if (!draft.name?.trim()) { setOpen({ ...open, saveError: 'Please enter a program name.' }); return; }
-                    setOpen({ ...open, screen: 'items', saveError: undefined });
+                    if (!draft.name?.trim()) { setOpen({ ...open, saveError: 'Please enter a journey name.' }); return; }
+                    setOpen({ ...open, screen: 'goals-list', saveError: undefined });
                   }}>Next</Button>
                 </DialogFooter>
               </DialogContent>
             );
           }
 
-          // ── Screen: items (list of added metric goals) ─────────────────
-          if (open.screen === 'items') {
+          // ── Screen: goals-list ────────────────────────────────────────
+          if (open.screen === 'goals-list') {
             return (
               <DialogContent className="narrow-dialog">
                 <DialogHeader>
@@ -3920,23 +3815,23 @@ export default function App() {
                 </DialogHeader>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 10 }}>
-                    {items.length === 0
-                      ? 'No metric goals yet. Add at least one.'
-                      : `${items.length} metric goal${items.length !== 1 ? 's' : ''} added`}
+                    {adoptedGoals.length === 0
+                      ? 'No goals yet. Add at least one.'
+                      : `${adoptedGoals.length} goal${adoptedGoals.length !== 1 ? 's' : ''} in this journey`}
                   </div>
-                  {items.map((item, idx) => {
-                    const cfg = metricConfig[item.metricId] ?? {};
-                    const title = cfg.title || toSentenceCase(item.metricId);
+                  {adoptedGoals.map(goal => {
+                    const cfg   = metricConfig[goal.metricId] ?? {};
+                    const title = cfg.title || toSentenceCase(goal.metricId);
                     return (
-                      <div key={item.itemId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6 }}>
+                      <div key={goal.goalId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 6 }}>
                         <div>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>{item.goalName || title}</div>
-                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{title} · {(item.goalType ?? '').replace(/_/g, ' ')} · {item.period}</div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{goal.name}</div>
+                          <div style={{ fontSize: 11, color: '#9ca3af' }}>{title} · {(goal.goalType ?? '').replace(/_/g, ' ')} · {goal.period}</div>
                         </div>
                         <button
-                          onClick={() => setOpen({ ...open, draft: { ...draft, items: items.filter((_, i) => i !== idx) } })}
+                          onClick={() => setOpen({ ...open, draft: { ...draft, goalIds: goalIds.filter(id => id !== goal.goalId) } })}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: 4 }}
-                          title="Remove"
+                          title="Remove from journey"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -3948,24 +3843,27 @@ export default function App() {
                     style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', border: '1px dashed #d1d5db', borderRadius: 8, background: 'transparent', cursor: 'pointer', marginTop: 4 }}
                   >
                     <Plus size={15} style={{ color: '#6366f1', flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, color: '#4f46e5', fontWeight: 600 }}>Add Metric Goal</span>
+                    <span style={{ fontSize: 13, color: '#4f46e5', fontWeight: 600 }}>Add a Goal</span>
                   </button>
                 </div>
                 {open.saveError && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 6 }}>{open.saveError}</div>}
                 <DialogFooter>
                   <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'name', saveError: undefined })}>Back</Button>
-                  <Button onClick={handleSaveProgram} disabled={open.isSaving}>
-                    {open.isSaving ? 'Saving…' : open.programId ? 'Update Program' : 'Save & Enroll'}
+                  <Button onClick={handleSaveJourney} disabled={open.isSaving}>
+                    {open.isSaving ? 'Saving…' : open.journeyId ? 'Update Journey' : 'Save Journey'}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             );
           }
 
-          // ── Screen: pick-metric ────────────────────────────────────────
+          // ── Screen: pick-metric ───────────────────────────────────────
           if (open.screen === 'pick-metric') {
-            const usedMetrics = new Set(items.map(i => i.metricId));
-            const available = cardDefinitions.filter(cd => !usedMetrics.has(cd.cardName));
+            const available = cardDefinitions.filter(cd => {
+              const metricGoals = goals.filter(g => g.metricId === cd.cardName && g.isActive);
+              const alreadyAdopted = metricGoals.filter(g => goalIds.includes(g.goalId));
+              return metricGoals.length === 0 || alreadyAdopted.length < metricGoals.length;
+            });
             return (
               <DialogContent className="narrow-dialog">
                 <DialogHeader>
@@ -3974,26 +3872,17 @@ export default function App() {
                 <div className="picker-scroll" style={{ display: 'grid', gap: 6, marginBottom: 8, maxHeight: 320, overflowY: 'auto' }}>
                   {available.length === 0 && (
                     <div style={{ fontSize: 13, color: '#9ca3af', padding: '8px 0 4px' }}>
-                      All subscribed metrics are already in this program.
+                      All subscribed metrics already have goals in this journey.
                     </div>
                   )}
                   {available.map(cd => {
-                    const cfg = metricConfig[cd.cardName] ?? {};
+                    const cfg  = metricConfig[cd.cardName] ?? {};
                     const Icon = cd.icon ?? Activity;
+                    const openGoalCount = goals.filter(g => g.metricId === cd.cardName && g.isActive && !goalIds.includes(g.goalId)).length;
                     return (
                       <button
                         key={cd.cardName}
-                        onClick={() => {
-                          const todayIso = new Date().toISOString().split('T')[0];
-                          const itemDraft = {
-                            ...PROGRAM_ITEM_DEFAULTS,
-                            itemId:   `item-${Date.now().toString(36)}`,
-                            metricId: cd.cardName,
-                            goalName: `${cfg.title || toSentenceCase(cd.cardName)} goal`,
-                            startDate: todayIso,
-                          };
-                          setOpen({ ...open, screen: 'item-goal', itemDraft, saveError: undefined });
-                        }}
+                        onClick={() => setOpen({ ...open, screen: 'pick-goal', pendingMetricId: cd.cardName })}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'white', cursor: 'pointer', textAlign: 'left', width: '100%' }}
                         onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
                         onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
@@ -4001,127 +3890,84 @@ export default function App() {
                         <Icon size={18} style={{ color: '#6366f1', flexShrink: 0 }} />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: 600, fontSize: 13 }}>{cfg.title || toSentenceCase(cd.cardName)}</div>
-                          {cfg.uom && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>Measured in {cfg.uom}</div>}
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
+                            {openGoalCount > 0 ? `${openGoalCount} existing goal${openGoalCount !== 1 ? 's' : ''}` : 'No goals yet — create one'}
+                          </div>
                         </div>
                       </button>
                     );
                   })}
                 </div>
                 <DialogFooter>
-                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'items', saveError: undefined })}>Back</Button>
+                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'goals-list', saveError: undefined })}>Back</Button>
                   <Button variant="secondary" onClick={() => {
-                    const stashedProgramWizard = open;
-                    setOpen({ type: 'add-metric', screen: 'custom', catalog: null, _returnTo: stashedProgramWizard });
-                  }}><Plus size={13} style={{ marginRight: 4 }} />New Metric</Button>
+                    const stashed = open;
+                    setOpen({ type: 'add-metric', screen: 'catalog', catalog: null, _returnTo: stashed });
+                    fetch(`${API}/metrics/catalog`, { headers: { Authorization: `Bearer ${authToken}` } })
+                      .then(r => r.ok ? r.json() : null)
+                      .then(data => { if (data) setOpen(prev => prev?.type === 'add-metric' ? { ...prev, catalog: data.metrics ?? [] } : prev); })
+                      .catch(() => {});
+                  }}>
+                    <Plus size={13} style={{ marginRight: 4 }} />New Metric
+                  </Button>
                 </DialogFooter>
               </DialogContent>
             );
           }
 
-          // ── Screen: item-goal (configure the goal for the chosen metric) ──
-          if (open.screen === 'item-goal') {
-            const id = open.itemDraft ?? {};
-            const cfg = metricConfig[id.metricId] ?? {};
-            const metricTitle = cfg.title || toSentenceCase(id.metricId ?? '');
-            const GOAL_TYPE_OPTIONS = [
-              { value: 'target_value', label: 'Target Value' },
-              { value: 'cumulative',   label: 'Cumulative' },
-              { value: 'range',        label: 'Range' },
-              { value: 'streak',       label: 'Streak' },
-            ];
-            const PERIOD_OPTIONS = [
-              { value: 'daily',    label: 'Daily' },
-              { value: 'weekly',   label: 'Weekly' },
-              { value: 'monthly',  label: 'Monthly' },
-              { value: 'rolling',  label: 'Rolling' },
-              { value: 'all_time', label: 'All Time' },
-            ];
+          // ── Screen: pick-goal ─────────────────────────────────────────
+          if (open.screen === 'pick-goal') {
+            const pmid = open.pendingMetricId;
+            const cfg  = metricConfig[pmid] ?? {};
+            const metricTitle = cfg.title || toSentenceCase(pmid ?? '');
+            const availableGoals = goals.filter(g => g.metricId === pmid && g.isActive && !goalIds.includes(g.goalId));
             return (
               <DialogContent className="narrow-dialog">
                 <DialogHeader>
                   <DialogTitle>Goal for {metricTitle}</DialogTitle>
                 </DialogHeader>
-                <div style={{ display: 'grid', gap: 14 }}>
-                  <div>
-                    <Label>Goal Name</Label>
-                    <Input
-                      value={id.goalName ?? ''}
-                      placeholder={`e.g. Weekly ${metricTitle} target`}
-                      onChange={e => setOpen({ ...open, itemDraft: { ...id, goalName: e.target.value } })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Goal Type</Label>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                      {GOAL_TYPE_OPTIONS.map(opt => (
-                        <button key={opt.value}
-                          onClick={() => setOpen({ ...open, itemDraft: { ...id, goalType: opt.value } })}
-                          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.goalType === opt.value ? '#6366f1' : '#d1d5db', background: id.goalType === opt.value ? '#eef2ff' : 'white', color: id.goalType === opt.value ? '#4f46e5' : '#374151', fontWeight: id.goalType === opt.value ? 600 : 400 }}
-                        >{opt.label}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {(id.goalType === 'target_value' || id.goalType === 'cumulative') && (
-                    <div>
-                      <Label>Target Value</Label>
-                      <Input type="number" style={{ width: 'auto' }} value={id.targetValue ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetValue: e.target.value !== '' ? Number(e.target.value) : null } })} />
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                        {[{ v: 'lower_is_better', label: '↓ Lower is better' }, { v: 'higher_is_better', label: '↑ Higher is better' }].map(d => (
-                          <button key={d.v} onClick={() => setOpen({ ...open, itemDraft: { ...id, direction: d.v } })}
-                            style={{ padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.direction === d.v ? '#6366f1' : '#d1d5db', background: id.direction === d.v ? '#eef2ff' : 'white', color: id.direction === d.v ? '#4f46e5' : '#374151', fontWeight: id.direction === d.v ? 600 : 400 }}
-                          >{d.label}</button>
-                        ))}
-                      </div>
+                <div style={{ marginBottom: 8 }}>
+                  {availableGoals.length === 0 && (
+                    <div style={{ fontSize: 13, color: '#9ca3af', padding: '4px 0 12px' }}>
+                      No existing goals for this metric yet. Create one below.
                     </div>
                   )}
-                  {id.goalType === 'target_value' && (
-                    <div>
-                      <Label>Starting Value <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span></Label>
-                      <Input type="number" style={{ width: 'auto' }} placeholder="Your value at the start" value={id.startingValue ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, startingValue: e.target.value !== '' ? Number(e.target.value) : null } })} />
-                    </div>
-                  )}
-                  {id.goalType === 'range' && (
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      <div style={{ flex: 1 }}><Label>Min</Label><Input type="number" style={{ width: 'auto' }} value={id.targetMin ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetMin: e.target.value !== '' ? Number(e.target.value) : null } })} /></div>
-                      <div style={{ flex: 1 }}><Label>Max</Label><Input type="number" style={{ width: 'auto' }} value={id.targetMax ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, targetMax: e.target.value !== '' ? Number(e.target.value) : null } })} /></div>
-                    </div>
-                  )}
-                  {id.goalType === 'streak' && (
-                    <div>
-                      <Label>Streak Target (consecutive days)</Label>
-                      <Input type="number" style={{ width: 'auto' }} value={id.streakTarget ?? ''} onChange={e => setOpen({ ...open, itemDraft: { ...id, streakTarget: e.target.value !== '' ? Number(e.target.value) : null } })} />
-                    </div>
-                  )}
-                  <div>
-                    <Label>Period</Label>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                      {PERIOD_OPTIONS.map(opt => (
-                        <button key={opt.value}
-                          onClick={() => setOpen({ ...open, itemDraft: { ...id, period: opt.value } })}
-                          style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer', border: '1px solid', borderColor: id.period === opt.value ? '#6366f1' : '#d1d5db', background: id.period === opt.value ? '#eef2ff' : 'white', color: id.period === opt.value ? '#4f46e5' : '#374151', fontWeight: id.period === opt.value ? 600 : 400 }}
-                        >{opt.label}</button>
-                      ))}
-                    </div>
-                    {id.period === 'rolling' && (
-                      <div style={{ marginTop: 8 }}>
-                        <Label>Rolling Window (days)</Label>
-                        <Input type="number" style={{ width: 'auto' }} value={id.periodDays ?? ''}
-                          onChange={e => setOpen({ ...open, itemDraft: { ...id, periodDays: e.target.value !== '' ? Number(e.target.value) : null } })} />
-                      </div>
-                    )}
-                  </div>
-                  {open.saveError && <div style={{ color: '#dc2626', fontSize: 13 }}>{open.saveError}</div>}
+                  {availableGoals.map(goal => (
+                    <button
+                      key={goal.goalId}
+                      onClick={() => setOpen({ ...open, screen: 'goals-list', pendingMetricId: undefined, draft: { ...draft, goalIds: [...goalIds, goal.goalId] } })}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', padding: '10px 14px', border: '1px solid #e5e7eb', borderRadius: 8, background: 'white', cursor: 'pointer', textAlign: 'left', marginBottom: 6 }}
+                      onMouseOver={e => e.currentTarget.style.borderColor = '#6366f1'}
+                      onMouseOut={e => e.currentTarget.style.borderColor = '#e5e7eb'}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{goal.name}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{(goal.goalType ?? '').replace(/_/g, ' ')} · {goal.period}</span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => {
+                      const stashed = open;
+                      const todayIso = new Date().toISOString().split('T')[0];
+                      setOpen({
+                        type: 'goal-wizard',
+                        metricId: pmid,
+                        metricTitle,
+                        screen: 'wizard',
+                        wizStep: 'category',
+                        wiz: {},
+                        draft: { ...GOAL_DEFAULTS, metricId: pmid, name: '', startDate: todayIso },
+                        editGoalId: undefined,
+                        _returnToJourney: stashed,
+                      });
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 12px', border: '1px dashed #d1d5db', borderRadius: 8, background: 'transparent', cursor: 'pointer', marginTop: availableGoals.length > 0 ? 4 : 0 }}
+                  >
+                    <Plus size={15} style={{ color: '#6366f1', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: '#4f46e5', fontWeight: 600 }}>Create a new goal</span>
+                  </button>
                 </div>
                 <DialogFooter>
-                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'pick-metric', itemDraft: undefined, saveError: undefined })}>Back</Button>
-                  <Button onClick={() => {
-                    if (!id.goalName?.trim()) { setOpen({ ...open, saveError: 'Please enter a goal name.' }); return; }
-                    if ((id.goalType === 'target_value' || id.goalType === 'cumulative') && id.targetValue == null) { setOpen({ ...open, saveError: 'Please enter a target value.' }); return; }
-                    if (id.goalType === 'range' && (id.targetMin == null || id.targetMax == null)) { setOpen({ ...open, saveError: 'Please enter Min and Max values.' }); return; }
-                    if (id.goalType === 'streak' && !id.streakTarget) { setOpen({ ...open, saveError: 'Please enter a streak target.' }); return; }
-                    const newItems = [...items, id];
-                    setOpen({ ...open, screen: 'items', draft: { ...draft, items: newItems }, itemDraft: undefined, saveError: undefined });
-                  }}>Add to Program</Button>
+                  <Button variant="secondary" onClick={() => setOpen({ ...open, screen: 'pick-metric', pendingMetricId: undefined })}>Back</Button>
                 </DialogFooter>
               </DialogContent>
             );
